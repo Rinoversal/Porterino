@@ -364,13 +364,21 @@ def check_routes(scene, depsgraph):
         length = sum((a - b).length for a, b in zip(pts, pts[1:])) + ((pts[-1] - pts[0]).length if closed else 0.0)
         spacing = float(getattr(route, "spacing", 0.0) or 0.0)
         samples = max(1, int(round(length / spacing))) if spacing > 0 else 0
-        off = [p for p in pts if ride_height(scene, depsgraph, p.x, p.y, p.z + 1.5, 4.0) is None]
+        if kind == "pedestrian":
+            off = [p for p in pts if ride_height(scene, depsgraph, p.x, p.y, p.z + 1.5, 4.0) is None]
+        else:                                               # vehicles sit on the route: more than 4 m of nothing is mid-air
+            off = [p for p in pts if (lambda d: d is None or d > 4.0)(_drop_below(scene, depsgraph, p, 4.5))]
         problems = []
         if kind == "pedestrian" and closed:
             problems.append("closed loop: walkers appear and vanish beside the player; use an open path")
         if samples > 2:
             problems.append("about %d spawn points on %.0f m: set spacing near the route length for one" % (samples, length))
-        if off:
+        if off and kind != "pedestrian":
+            # a vehicle is placed on its route: with nothing solid under it, it starts in mid-air and drops
+            drops = [d for d in (_drop_below(scene, depsgraph, p) for p in off) if d is not None]
+            problems.append("%d of %d points have nothing solid under them%s: vehicles start in the air there. "
+                            "Use 'Add deck under routes'" % (len(off), len(pts), (", up to %.0f m above the ground" % max(drops)) if drops else ""))
+        elif off:
             problems.append("%d of %d points are not over solid ground" % (len(off), len(pts)))
         if sp is not None and min((p - sp).length for p in pts) < 12.0:
             problems.append("passes within 12 m of the player start")
@@ -380,7 +388,80 @@ def check_routes(scene, depsgraph):
         return [finding("routes", "ok", "No NPC routes in this scene (or ReSkate Studio's add-on is not enabled).")]
     if pedestrians > 3:
         out.append(finding("routes", "look", "%d pedestrian routes: more than 3 on one map costs frame rate on slower PCs." % pedestrians))
-    return out or [finding("routes", "ok", "All routes are open, single-spawn, on solid ground and away from the start.")]
+    return out or [finding("routes", "ok", "No route problems found.")]
+
+
+def _drop_below(scene, depsgraph, p, depth=80.0):
+    """Distance from p down to the first solid surface, or None when there is none."""
+    for z, obj, _nz in _hits_below(scene, depsgraph, p.x, p.y, p.z + 0.5, depth, 12):
+        if is_solid(obj):
+            return p.z - z
+    return None
+
+
+def add_route_support(scene, depsgraph, routes=None, reach=4.0):
+    """Lays an invisible solid deck under the stretches of vehicle routes that have nothing solid within `reach`
+    metres below them (an elevated track drawn as thin rails, a gap in a road). Nothing is removed.
+    Returns a list of (route name, points fixed, new object)."""
+    made = []
+    if routes is None:
+        routes = [o for o in scene.objects if o.type == "CURVE" and getattr(o, "sk8_npc_route", None) is not None
+                  and o.sk8_npc_route.enabled and str(o.sk8_npc_route.kind) != "pedestrian"]
+    for obj in routes:
+        if obj.type != "CURVE":
+            continue
+        pts, closed = [], False
+        for spline in obj.data.splines:
+            closed = closed or bool(spline.use_cyclic_u)
+            src = spline.bezier_points if spline.type == "BEZIER" else spline.points
+            pts += [obj.matrix_world @ Vector(p.co[:3]) for p in src]
+        n = len(pts)
+        if n < 2:
+            continue
+        bad = []
+        for p in pts:
+            d = _drop_below(scene, depsgraph, p, reach + 0.5)
+            bad.append(d is None or d > reach)
+        if not any(bad):
+            continue
+        route = getattr(obj, "sk8_npc_route", None)
+        half = max(float(getattr(route, "width", 3.2) or 3.2), 3.2) / 2.0 + 0.6
+        verts, faces = [], []
+        for i in range(n):
+            a = pts[(i - 1) % n] if closed else pts[max(i - 1, 0)]
+            b = pts[(i + 1) % n] if closed else pts[min(i + 1, n - 1)]
+            t = b - a
+            t.z = 0.0
+            side = Vector((t.y, -t.x, 0.0)).normalized() if t.length > 1e-6 else Vector((1.0, 0.0, 0.0))
+            low = Vector((0.0, 0.0, 0.03))
+            verts += [tuple(pts[i] + side * half - low), tuple(pts[i] - side * half - low)]
+        for i in range(n if closed else n - 1):
+            j = (i + 1) % n
+            if bad[i] or bad[j]:
+                faces.append((2 * i, 2 * i + 1, 2 * j + 1, 2 * j))
+        if not faces:
+            continue
+        me = bpy.data.meshes.new("Route support deck " + obj.name)
+        me.from_pydata(verts, [], faces)
+        me.update()
+        if sum(p.normal.z for p in me.polygons) < 0.0:
+            me.flip_normals()
+        mat = bpy.data.materials.new("Invisible route support")
+        ms = getattr(mat, "sk8_material", None)
+        if ms is not None:                                  # ReSkate Studio: invisible in game, still solid
+            for name, value in (("invisible", True), ("cast_shadows", False), ("exclude_from_edge_generation", True),
+                                ("exclude_from_grinding", True)):
+                if hasattr(ms, name):
+                    setattr(ms, name, value)
+        me.materials.append(mat)
+        deck = bpy.data.objects.new("Route support " + obj.name, me)
+        scene.collection.objects.link(deck)
+        deck.display_type = "WIRE"                          # shows as an outline in Blender so it is clearly a helper
+        so = getattr(deck, "sk8_object", None)
+        if so is not None:
+            so.collision_mode = "triangle_mesh"
+        made.append((obj.name, sum(bad), deck))
+    return made
 
 
 # ---------------------------------------------------------------------------------------------------------------

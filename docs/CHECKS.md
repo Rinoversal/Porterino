@@ -92,6 +92,25 @@ Needs ReSkate Studio's add-on. It reads the NPC routes in the scene and reports:
 - **Passes within 12 m of the player start:** someone appears in your face on load.
 - **More than 3 pedestrian routes:** costs frame rate on slower PCs.
 
+### Add deck under routes (the fix for vehicles in mid-air)
+
+A bus, car or train is placed **on** its route. If part of the route has nothing solid directly under it, the
+vehicle starts in the air there and drops. This happens most with elevated train tracks, which are drawn as two thin
+rails and sleepers with gaps between them, and with road tiles that have a hole under a decal.
+
+1. Run **NPC routes**. A route with this problem says `N of M points have nothing solid under them, up to X m above
+   the ground`.
+2. Press **Add deck under routes**. With nothing selected it fixes every vehicle route; select route curves first to
+   fix only those.
+3. It adds an invisible solid strip, a little wider than the route, under just the stretches with more than 4 m of
+   nothing below them. Stretches closer to solid ground are left alone, so it never puts an invisible ceiling low over
+   a place you can skate. In Blender
+   it shows as a wire outline named `Route support ...`. Nothing is removed and the route is not moved.
+4. Run **NPC routes** again to confirm.
+
+In game the strip cannot be seen but is solid, so a skater who reaches an elevated track can stand between the rails.
+If you would rather not have that, delete the strip and lower the route's weight or shorten the route instead.
+
 ## Check lights
 
 See [LIGHTING.md](LIGHTING.md).

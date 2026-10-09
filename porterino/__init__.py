@@ -196,6 +196,25 @@ class PORTERINO_OT_all(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class PORTERINO_OT_route_support(bpy.types.Operator):
+    bl_idname = "porterino.route_support"
+    bl_label = "Add deck under routes"
+    bl_description = ("Lays an invisible solid deck under the parts of bus, train and car routes that have nothing solid "
+                      "under them, so vehicles do not start in mid-air. Uses the selected routes, or all of them if none is selected")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        chosen = [o for o in context.selected_objects if o.type == "CURVE"] or None
+        made = checks.add_route_support(context.scene, context.evaluated_depsgraph_get(), chosen)
+        if not made:
+            self.report({"INFO"}, "Every vehicle route already has solid ground under it")
+        else:
+            self.report({"INFO"}, "; ".join("%s: %d points decked" % (name, n) for name, n, _ in made))
+        return {"FINISHED"}
+
+
 class PORTERINO_OT_goto(bpy.types.Operator):
     bl_idname = "porterino.goto"
     bl_label = "Go to this spot"
@@ -306,6 +325,7 @@ class PORTERINO_PT_checks(PorterinoPanel, bpy.types.Panel):
         col.prop(s, "lips_selected_only")
         col.separator()
         col.operator("porterino.check_routes", icon="OUTLINER_OB_ARMATURE")
+        col.operator("porterino.route_support", icon="MOD_SOLIDIFY")
         col.operator("porterino.check_lights", icon="LIGHT")
 
 
@@ -397,7 +417,7 @@ class PORTERINO_PT_rebuild(PorterinoPanel, bpy.types.Panel):
 
 CLASSES = (PorterinoFinding, PorterinoSettings, PorterinoPreferences, PORTERINO_OT_floor, PORTERINO_OT_lips,
            PORTERINO_OT_transition, PORTERINO_OT_rim, PORTERINO_OT_routes, PORTERINO_OT_lights, PORTERINO_OT_all,
-           PORTERINO_OT_goto, PORTERINO_OT_set_lights, PORTERINO_OT_glow, PORTERINO_OT_scale, PORTERINO_OT_rebuild,
+           PORTERINO_OT_route_support, PORTERINO_OT_goto, PORTERINO_OT_set_lights, PORTERINO_OT_glow, PORTERINO_OT_scale, PORTERINO_OT_rebuild,
            PORTERINO_PT_checks, PORTERINO_PT_shape, PORTERINO_PT_results, PORTERINO_PT_lights, PORTERINO_PT_scale,
            PORTERINO_PT_rebuild)
 
