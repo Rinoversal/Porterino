@@ -25,6 +25,23 @@ a simple invisible collision plane under it.
 
 **It ignores on purpose:** pieces under 12 m2, and anything named like a tree, water, sky or backdrop.
 
+## Seen but not solid
+
+**What it finds:** floors and ramps that are drawn but have nothing solid where you see them. You ride onto the ramp
+and go straight through it. This is common in ports, where the picture and the collision are two separate meshes and
+the collision for some pieces did not come across.
+
+**How to run it:** set **Radius**, press **Seen but not solid**.
+
+**Reading the result:** `ramp_12: 14 of 14 m2 not solid (solid is 1.50 m away)` means the whole piece is drawn 1.5 m
+away from the nearest collision. `nothing solid under it at all` means there is no collision below it anywhere.
+
+**How to fix it:** press **Make drawn pieces solid**. Each reported piece gets collision from its own drawn mesh.
+Backdrops, water and sky are left alone, and a piece is only changed when at least a quarter of it is unsupported.
+Run the check again afterwards. Roofs and other high pieces become solid too, which is normally what you want.
+
+**What it does not cover:** walls and fences. It only looks at surfaces you could stand on.
+
 ## Ramp lips
 
 **What it finds:** a sharp step where the floor meets the bottom of a ramp, bank, quarter pipe, bowl or kicker.

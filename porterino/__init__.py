@@ -129,6 +129,32 @@ class PORTERINO_OT_floor(PorterinoCheck, bpy.types.Operator):
         return checks.check_floor_holes(context.scene, depsgraph, radius=context.scene.porterino.hole_radius)
 
 
+class PORTERINO_OT_solid(PorterinoCheck, bpy.types.Operator):
+    bl_idname = "porterino.check_solid"
+    bl_label = "Seen but not solid"
+    bl_description = ("Drawn floors and ramps with nothing solid where you see them: you ride or fall straight through. "
+                      "For maps whose collision is a separate mesh, such as most ports")
+    check_name = "solid"
+
+    def measure(self, context, depsgraph):
+        return checks.check_seen_vs_solid(context.scene, depsgraph, radius=context.scene.porterino.hole_radius)
+
+
+class PORTERINO_OT_fix_solid(bpy.types.Operator):
+    bl_idname = "porterino.fix_solid"
+    bl_label = "Make drawn pieces solid"
+    bl_description = "Gives collision to the drawn pieces that 'Seen but not solid' reports, using the drawn mesh itself"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        changed = checks.fix_seen_vs_solid(context.scene, context.evaluated_depsgraph_get(),
+                                           radius=context.scene.porterino.hole_radius)
+        self.report({"INFO"}, "%d piece(s) made solid" % len(changed) if changed else "Nothing needed fixing")
+        return {"FINISHED"}
+
+
 class PORTERINO_OT_lips(PorterinoCheck, bpy.types.Operator):
     bl_idname = "porterino.check_lips"
     bl_label = "Ramp lips"
@@ -319,6 +345,8 @@ class PORTERINO_PT_checks(PorterinoPanel, bpy.types.Panel):
         col.separator()
         col.operator("porterino.check_floor", icon="MESH_GRID")
         col.prop(s, "hole_radius")
+        col.operator("porterino.check_solid", icon="MOD_PHYSICS")
+        col.operator("porterino.fix_solid", icon="CHECKMARK")
         col.separator()
         col.operator("porterino.check_lips", icon="IPO_EASE_IN")
         col.prop(s, "lip_minimum")
@@ -415,7 +443,8 @@ class PORTERINO_PT_rebuild(PorterinoPanel, bpy.types.Panel):
         col.label(text="Paths: Preferences > Add-ons > Porterino")
 
 
-CLASSES = (PorterinoFinding, PorterinoSettings, PorterinoPreferences, PORTERINO_OT_floor, PORTERINO_OT_lips,
+CLASSES = (PorterinoFinding, PorterinoSettings, PorterinoPreferences, PORTERINO_OT_floor, PORTERINO_OT_solid,
+           PORTERINO_OT_fix_solid, PORTERINO_OT_lips,
            PORTERINO_OT_transition, PORTERINO_OT_rim, PORTERINO_OT_routes, PORTERINO_OT_lights, PORTERINO_OT_all,
            PORTERINO_OT_route_support, PORTERINO_OT_goto, PORTERINO_OT_set_lights, PORTERINO_OT_glow, PORTERINO_OT_scale, PORTERINO_OT_rebuild,
            PORTERINO_PT_checks, PORTERINO_PT_shape, PORTERINO_PT_results, PORTERINO_PT_lights, PORTERINO_PT_scale,

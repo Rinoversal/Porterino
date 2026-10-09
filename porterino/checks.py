@@ -135,6 +135,119 @@ def check_floor_holes(scene, depsgraph, radius=150.0, step=None, centre=None, ma
 
 
 # ---------------------------------------------------------------------------------------------------------------
+SCENERY = re.compile(r"backdrop|vista|periph|skybox|sky_|cloud|horizon|mountain|water|ocean", re.I)
+
+
+def _material_drawn(mat):
+    """A material that is drawn as an ordinary opaque surface (not invisible, not a cut-out, decal or glass)."""
+    if mat is None:
+        return True
+    s = getattr(mat, "sk8_material", None)
+    if s is None:
+        return True
+    if getattr(s, "invisible", False):
+        return False
+    return str(getattr(s, "alpha", "opaque")) in ("opaque", "auto") and str(getattr(s, "domain", "surface")) == "surface"
+
+
+def _world_tree(scene, depsgraph, want):
+    """One BVH tree in world space from the faces `want(object, material)` accepts. Returns (tree, object name per face)."""
+    verts, polys, owner = [], [], []
+    for obj in scene.objects:
+        if obj.type != "MESH":
+            continue
+        me = obj.data
+        mats = me.materials
+        picked = [p for p in me.polygons if want(obj, mats[p.material_index] if p.material_index < len(mats) else None)]
+        if not picked:
+            continue
+        base, mw = len(verts), obj.matrix_world
+        verts += [mw @ v.co for v in me.vertices]
+        for p in picked:
+            polys.append(tuple(base + i for i in p.vertices))
+            owner.append(obj.name)
+    return (BVHTree.FromPolygons(verts, polys) if polys else None), owner
+
+
+def seen_vs_solid(scene, depsgraph, radius=150.0, step=0.5, centre=None, tolerance=0.15):
+    """Measures, piece by piece, how much of what is DRAWN has nothing SOLID within `tolerance` metres of it.
+    Works for maps where the drawn mesh and the collision mesh are separate objects (most ports) and for maps where
+    one mesh does both. Returns {object name: [sampled m2, unsupported m2, biggest gap m, first bad spot]}."""
+    if centre is None:
+        spawn = find_spawn(scene)
+        centre = spawn.location.copy() if spawn else scene.cursor.location.copy()
+    vis, vis_owner = _world_tree(scene, depsgraph, lambda o, m: not o.hide_render and _material_drawn(m))
+    sol, _ = _world_tree(scene, depsgraph, lambda o, m: is_solid(o))
+    out = {}
+    if vis is None:
+        return out
+    top = max((o.matrix_world @ Vector(c)).z for o in scene.objects if o.type == "MESH" for c in o.bound_box) + 2.0
+
+    def column(tree, x, y, limit=8):
+        found, z = [], top
+        for _ in range(limit):
+            loc, nor, idx, _d = tree.ray_cast(Vector((x, y, z)), DOWN, 1000.0)
+            if loc is None:
+                break
+            found.append((loc.z, nor.z, idx))
+            z = loc.z - 0.02
+        return found
+
+    n, cell = int(radius / step), step * step
+    for ix in range(-n, n + 1):
+        for iy in range(-n, n + 1):
+            if ix * ix + iy * iy > n * n:
+                continue
+            x, y = centre.x + ix * step, centre.y + iy * step
+            seen = [h for h in column(vis, x, y) if abs(h[1]) > 0.35]         # floors and ramps, not walls
+            if not seen:
+                continue
+            solid_z = [h[0] for h in column(sol, x, y)] if sol is not None else []
+            for z, _nz, idx in seen:
+                rec = out.setdefault(vis_owner[idx], [0.0, 0.0, 0.0, None])
+                rec[0] += cell
+                gap = min((abs(z - s) for s in solid_z), default=None)
+                if gap is None or gap > tolerance:
+                    rec[1] += cell
+                    rec[2] = max(rec[2], gap if gap is not None else 999.0)
+                    rec[3] = rec[3] or (x, y, z)
+    return out
+
+
+def check_seen_vs_solid(scene, depsgraph, radius=150.0, step=0.5, minimum_m2=1.5):
+    """Drawn floors and ramps you would ride or fall straight through, because nothing solid sits where they are drawn."""
+    table = seen_vs_solid(scene, depsgraph, radius, step)
+    rows = [(rec[1], name, rec) for name, rec in table.items()
+            if rec[1] >= minimum_m2 and not SCENERY.search(name) and not is_solid(scene.objects[name])]
+    rows.sort(reverse=True)
+    if not rows:
+        return [finding("solid", "ok", "Every drawn floor and ramp within %.0f m has something solid where it is drawn." % radius)]
+    out = [finding("solid", "problem", "%d drawn pieces are not solid where you see them (%.0f m2 in all). "
+                                       "Use 'Make drawn pieces solid'." % (len(rows), sum(r[0] for r in rows)))]
+    for bad, name, rec in rows[:40]:
+        gap = "nothing solid under it at all" if rec[2] >= 999.0 else "solid is %.2f m away" % rec[2]
+        out.append(finding("solid", "problem", "%s: %.0f of %.0f m2 not solid (%s)" % (name, bad, rec[0], gap), rec[3]))
+    return out
+
+
+def fix_seen_vs_solid(scene, depsgraph, radius=150.0, step=0.5, minimum_m2=1.5, minimum_share=0.25):
+    """Gives collision to the drawn pieces check_seen_vs_solid reports, using the drawn mesh itself.
+    Scenery (backdrops, water, sky) is left alone. Returns the objects changed."""
+    table = seen_vs_solid(scene, depsgraph, radius, step)
+    changed = []
+    for name, rec in table.items():
+        obj = scene.objects.get(name)
+        if obj is None or SCENERY.search(name) or is_solid(obj):
+            continue
+        if rec[1] >= minimum_m2 and rec[1] >= minimum_share * rec[0]:
+            settings = getattr(obj, "sk8_object", None)
+            if settings is not None:
+                settings.collision_mode = "triangle_mesh"
+                changed.append(obj)
+    return changed
+
+
+# ---------------------------------------------------------------------------------------------------------------
 def check_ramp_lips(scene, depsgraph, objects=None, minimum_cm=3.5):
     """Sharp steps where the floor meets the foot of a ramp, quarter pipe, bank, bowl or kicker.
     Pieces are found by name unless `objects` is given (for example the current selection)."""
