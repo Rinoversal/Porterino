@@ -459,7 +459,7 @@ def add_glow_light(scene, obj, power=300.0, offset=0.3, times=("evening", "night
 
 
 def scale_map(scene, factor):
-    """Scale the whole map about the world origin, keeping lights looking the same and markers their real size."""
+    """Scale map about the world origin, keeping lights looking the same and markers their real size."""
     count = 0
     for obj in scene.objects:
         if obj.parent is not None:

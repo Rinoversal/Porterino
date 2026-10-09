@@ -6,7 +6,7 @@ view on it. The full text is also in Blender's Text Editor as **Porterino report
 
 The checks measure the mesh. They do not ride the map. Use them to find where to look, then ride it.
 
-## Find holes in the floor
+## Floor holes
 
 **What it finds:** floor you can see that has nothing solid under it. In game you fall through the map there.
 This usually happens when a floor piece has its collision set to "none", for example because it was treated as decoration.
@@ -15,7 +15,7 @@ This usually happens when a floor piece has its collision set to "none", for exa
 
 1. Set **Radius**. It searches a circle around the player start (an empty whose name starts with `spawn`, `start`
    or `playerstart`). If there is none it uses the 3D cursor.
-2. Press **Find holes in the floor**.
+2. Press **Floor holes**.
 
 **Reading the result:** `18 m2 of drawn floor has nothing solid under it (floor_pit)` means a patch of that size, and
 the name is the mesh you are looking at.
@@ -25,17 +25,17 @@ a simple invisible collision plane under it.
 
 **It ignores on purpose:** pieces under 12 m2, and anything named like a tree, water, sky or backdrop.
 
-## Find lips at ramp entrances
+## Ramp lips
 
 **What it finds:** a sharp step where the floor meets the bottom of a ramp, bank, quarter pipe, bowl or kicker.
 In skate. a step of a few centimetres can catch the wheels and stop you dead.
 
 **How to run it**
 
-1. Leave **Selected pieces only** off to check every piece whose name looks like a ramp (ramp, quarter, qp, bowl,
+1. Leave **Selected only** off to check every piece whose name looks like a ramp (ramp, quarter, qp, bowl,
    kicker, bank, spine, pyramid, funbox, roll in, wedge, hip, vert, pool).
    Turn it on to check exactly the meshes you have selected, whatever they are called.
-2. Press **Find lips at ramp entrances**.
+2. Press **Ramp lips**.
 
 **Reading the result:** `QP_03: sharp step up to 6.1 cm at its foot (typical 2.5 cm, 14 places)`. The cursor goes to
 the worst place.
@@ -46,7 +46,7 @@ Aim for no step at all at an entrance.
 **Honest note:** this check has found steps in our own maps, but we have not finished ride-testing which sizes you can
 feel. Treat 3.5 cm and up as "ride this entrance first".
 
-## Measure bowl / quarter pipe
+## Measure bowl / ramp
 
 **What it finds:** whether a transition will send you up or throw you outward, and whether it is smooth enough.
 
@@ -54,7 +54,7 @@ feel. Treat 3.5 cm and up as "ride this entrance first".
 
 1. Select the bowl or ramp mesh (several pieces are fine).
 2. Put the 3D cursor on the flat bottom: Shift + right-click on the floor of the bowl.
-3. Press **Measure bowl / quarter pipe**.
+3. Press **Measure bowl / ramp**.
 
 It walks outward from the cursor in 32 directions and measures every wall it climbs.
 
@@ -73,16 +73,16 @@ It walks outward from the cursor in 32 directions and measures every wall it cli
 
 **Honest note:** 75 and 14 degrees are starting values, not laws. If a bowl rides well with other numbers, tell us.
 
-## Check coping / rim curve
+## Check coping curve
 
 **What it finds:** corners and long straight pieces along a grind curve, which make a grind jerk or drop.
 
-**How to run it:** select the curve object and press **Check coping / rim curve**.
+**How to run it:** select the curve object and press **Check coping curve**.
 
 **Reading the result:** number of points, the sharpest turn between two segments, and the longest segment. It suggests
 staying under 10 degrees per point and 0.45 m per segment on a round bowl. Add points where it turns sharply.
 
-## Check pedestrians and traffic
+## NPC routes
 
 Needs ReSkate Studio's add-on. It reads the NPC routes in the scene and reports:
 
@@ -96,8 +96,8 @@ Needs ReSkate Studio's add-on. It reads the NPC routes in the scene and reports:
 
 See [LIGHTING.md](LIGHTING.md).
 
-## Scale the whole map
+## Scale map
 
-Set **Factor** (0.8 = 80% of the size) and press **Scale the whole map**. It scales about the world origin and also
+Set **Factor** (0.8 = 80% of the size) and press **Scale map**. It scales about the world origin and also
 adjusts light power, light ranges and NPC route widths so the map looks and behaves the same, just smaller or bigger.
 Save a copy of the file first. One Undo reverts it.

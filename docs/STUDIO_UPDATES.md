@@ -20,7 +20,7 @@ quiet; nothing crashes and the geometry checks carry on.
 ## After any Studio update
 
 1. Rebuild one small map with the rebuild button and load it.
-2. Run **Check pedestrians and traffic** on a map that has routes and confirm it still lists them.
+2. Run **NPC routes** on a map that has routes and confirm it still lists them.
 3. Set one light with the lighting helper and confirm in game that it switches on at the time you chose.
 
 If all three behave, nothing needs changing.

@@ -6,7 +6,7 @@ skate. does not read your .blend. ReSkate Studio compiles the .blend into the ga
 loads that compiled copy. So if you move a ramp in Blender and start the game, **you see the old map** until you
 rebuild. Moving one object means: save, compile, install, load.
 
-The **Save, rebuild and install** button does all of that in one click, in its own window, so Blender stays usable.
+The **Rebuild and install** button does all of that in one click, in its own window, so Blender stays usable.
 
 ## Set it up once
 
@@ -23,7 +23,7 @@ The **Save, rebuild and install** button does all of that in one click, in its o
 1. Save your .blend with the name you want the map to have in game. The file name is the map's title.
 2. Close skate. if it is open. A map cannot be replaced while the game has it loaded.
 3. In the **Rebuild into the game** panel pick the time of day, leave **Bake lighting** off for a test build.
-4. Press **Save, rebuild and install**.
+4. Press **Rebuild and install**.
 5. A console window opens and shows the build. When it says `Installed to Mods\<name>`, the game starts if
    **Start the game after** is ticked. Pick the map from the pause menu's custom maps.
 6. If it says `BUILD FAILED`, the reason is in the lines above it. The window stays open so you can read it.

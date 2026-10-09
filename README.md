@@ -15,15 +15,15 @@ No AI needed. No command line needed. If you do use an AI agent or scripts, the 
 
 | Tool | What it does | How far it is proven |
 |---|---|---|
-| Find holes in the floor | Finds floor you can see but that has no collision under it | Found a real fall-through pit in a released map |
-| Find lips at ramp entrances | Finds sharp steps (3.5 cm and up) where the floor meets a ramp | Finds steps in the mesh; which sizes you feel in game is still being ride-tested |
-| Measure bowl / quarter pipe | Height, angle at the lip, radius and facet kinks all the way round | New, numbers are a starting point |
-| Check coping / rim curve | Sharp turns and long straight segments along a grind curve | New |
-| Check pedestrians and traffic | Routes that pop in next to the player, spawn off the map or cost frame rate | Rules come from tester complaints on released maps |
+| Floor holes | Finds floor you can see but that has no collision under it | Found a real fall-through pit in a released map |
+| Ramp lips | Finds sharp steps (3.5 cm and up) where the floor meets a ramp | Finds steps in the mesh; which sizes you feel in game is still being ride-tested |
+| Measure bowl / ramp | Height, angle at the lip, radius and facet kinks all the way round | New, numbers are a starting point |
+| Check coping curve | Sharp turns and long straight segments along a grind curve | New |
+| NPC routes | Routes that pop in next to the player, spawn off the map or cost frame rate | Rules come from tester complaints on released maps |
 | Check lights | Lights with no range or time of day, hidden pieces that will not export, emission the game ignores | Emission result confirmed in game |
 | Lighting helper | Sets range and time of day on lights; adds a glow light in front of a sign | Glow method confirmed in game |
-| Scale the whole map | Scales everything and keeps lights and NPC routes matching | Used on released maps |
-| Save, rebuild and install | One button: save, compile with ReSkate Studio, install, start the game | Same command our own maps are built with |
+| Scale map | Scales everything and keeps lights and NPC routes matching | Used on released maps |
+| Rebuild and install | One button: save, compile with ReSkate Studio, install, start the game | Same command our own maps are built with |
 
 ## Does it work for other games and engines?
 
@@ -58,7 +58,7 @@ only, all listed in [docs/STUDIO_UPDATES.md](docs/STUDIO_UPDATES.md) with how to
 ## Use it
 
 1. Open your map's .blend.
-2. In the Porterino tab press **Run every map check**. On a big map this takes a few minutes; Blender waits while it works.
+2. In the Porterino tab press **Run all checks**. On a big map this takes a few minutes; Blender waits while it works.
 3. Read the **Results** box. Each line has a magnifier button: press it to jump to that spot.
 4. Fix, press the check again, repeat.
 5. Ride it. A check finds what the mesh says; only a ride proves how it feels.

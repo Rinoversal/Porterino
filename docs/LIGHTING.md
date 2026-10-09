@@ -26,13 +26,13 @@ You do not have to type these. Select your lights and use the **Lighting helper*
 
 1. Set **Range**.
 2. Set **On during** (Always for indoor lights, Evening and night for street lamps and signs).
-3. Press **Apply to selected lights**.
+3. Press **Set selected lights**.
 
 ## Making something glow
 
 1. Select the sign or panel mesh (one or many).
 2. Set **Power**. 300 W suits a 2 m panel.
-3. Press **Add glow light to selected**.
+3. Press **Add glow light**.
 
 It adds an Area light the size of the piece, 30 cm off its biggest face. If the light ended up behind the sign
 (the face pointed the other way), rotate the light 180 degrees and move it to the front.

@@ -33,7 +33,7 @@ class PorterinoSettings(bpy.types.PropertyGroup):
                                description="How far from the player start (or the 3D cursor) to look for holes")
     lip_minimum: FloatProperty(name="Report from (cm)", default=3.5, min=1.0, max=8.0,
                                description="Smallest sharp step to report at the foot of a ramp")
-    lips_selected_only: BoolProperty(name="Selected pieces only", default=False,
+    lips_selected_only: BoolProperty(name="Selected only", default=False,
                                      description="Check the selected meshes instead of finding ramps by name")
     bowl_lip_angle: FloatProperty(name="Lip at least (deg)", default=75.0, min=20.0, max=90.0,
                                   description="Flag a wall whose top is shallower than this. 90 is vertical")
@@ -121,7 +121,7 @@ class PorterinoCheck:
 
 class PORTERINO_OT_floor(PorterinoCheck, bpy.types.Operator):
     bl_idname = "porterino.check_floor"
-    bl_label = "Find holes in the floor"
+    bl_label = "Floor holes"
     bl_description = "Drawn floor with nothing solid under it, where the player falls through the map"
     check_name = "floor"
 
@@ -131,7 +131,7 @@ class PORTERINO_OT_floor(PorterinoCheck, bpy.types.Operator):
 
 class PORTERINO_OT_lips(PorterinoCheck, bpy.types.Operator):
     bl_idname = "porterino.check_lips"
-    bl_label = "Find lips at ramp entrances"
+    bl_label = "Ramp lips"
     bl_description = "Sharp steps where the floor meets the foot of a ramp, bank, bowl or kicker"
     check_name = "lips"
 
@@ -143,7 +143,7 @@ class PORTERINO_OT_lips(PorterinoCheck, bpy.types.Operator):
 
 class PORTERINO_OT_transition(PorterinoCheck, bpy.types.Operator):
     bl_idname = "porterino.check_transition"
-    bl_label = "Measure bowl / quarter pipe"
+    bl_label = "Measure bowl / ramp"
     bl_description = "Select the bowl or ramp, put the 3D cursor on its flat bottom, then press this"
     check_name = "transition"
 
@@ -155,7 +155,7 @@ class PORTERINO_OT_transition(PorterinoCheck, bpy.types.Operator):
 
 class PORTERINO_OT_rim(PorterinoCheck, bpy.types.Operator):
     bl_idname = "porterino.check_rim"
-    bl_label = "Check coping / rim curve"
+    bl_label = "Check coping curve"
     bl_description = "Select the coping or grind curve: reports sharp turns and long straight segments"
     check_name = "rim"
 
@@ -165,7 +165,7 @@ class PORTERINO_OT_rim(PorterinoCheck, bpy.types.Operator):
 
 class PORTERINO_OT_routes(PorterinoCheck, bpy.types.Operator):
     bl_idname = "porterino.check_routes"
-    bl_label = "Check pedestrians and traffic"
+    bl_label = "NPC routes"
     bl_description = "NPC routes that pop in beside the player, spawn off the map or cost frame rate"
     check_name = "routes"
 
@@ -185,7 +185,7 @@ class PORTERINO_OT_lights(PorterinoCheck, bpy.types.Operator):
 
 class PORTERINO_OT_all(bpy.types.Operator):
     bl_idname = "porterino.check_all"
-    bl_label = "Run every map check"
+    bl_label = "Run all checks"
     bl_description = "Floor holes, ramp lips, NPC routes and lights. Large maps can take a few minutes"
 
     def execute(self, context):
@@ -218,7 +218,7 @@ WHEN = {"always": ("morning", "noon", "afternoon", "evening", "night", "weatherd
 
 class PORTERINO_OT_set_lights(bpy.types.Operator):
     bl_idname = "porterino.set_lights"
-    bl_label = "Apply to selected lights"
+    bl_label = "Set selected lights"
     bl_description = "Write the range and the times of day onto every selected light"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -233,7 +233,7 @@ class PORTERINO_OT_set_lights(bpy.types.Operator):
 
 class PORTERINO_OT_glow(bpy.types.Operator):
     bl_idname = "porterino.add_glow"
-    bl_label = "Add glow light to selected"
+    bl_label = "Add glow light"
     bl_description = "Puts an Area light just in front of each selected sign or panel. This is how to make something look lit: emission is ignored by the game"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -247,7 +247,7 @@ class PORTERINO_OT_glow(bpy.types.Operator):
 
 class PORTERINO_OT_scale(bpy.types.Operator):
     bl_idname = "porterino.scale_map"
-    bl_label = "Scale the whole map"
+    bl_label = "Scale map"
     bl_description = "Scales every object about the world origin and keeps lights, ranges and NPC routes matching. Save a copy first"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -262,7 +262,7 @@ class PORTERINO_OT_scale(bpy.types.Operator):
 
 class PORTERINO_OT_rebuild(bpy.types.Operator):
     bl_idname = "porterino.rebuild"
-    bl_label = "Save, rebuild and install"
+    bl_label = "Rebuild and install"
     bl_description = "Saves this file, compiles it with ReSkate Studio in a separate window and installs it into the game's Mods folder"
 
     def execute(self, context):
