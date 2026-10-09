@@ -15,8 +15,9 @@ def is_game_running():
 
 
 def start(blend, blender_exe, game_folder, studio_cli, staging_folder, time_of_day="noon", bake=False, open_sky=False,
-          launch=True, startup_command=""):
-    """Returns an error message, or None when the build window was started."""
+          launch=True, startup_command="", script_only=False):
+    """Returns an error message, or None when the build window was started.
+    script_only=True writes the build script and returns its path in a tuple (None, path) without running it."""
     game_folder = os.path.normpath(game_folder) if game_folder else ""
     staging_folder = os.path.normpath(staging_folder) if staging_folder else ""
     if not game_folder or not os.path.isdir(os.path.join(game_folder, "Mods")):
@@ -25,8 +26,8 @@ def start(blend, blender_exe, game_folder, studio_cli, staging_folder, time_of_d
         return "Set reskate_cli.exe (inside your ReSkate Studio folder) in Preferences > Add-ons > Porterino"
     if not staging_folder:
         return "Set a build folder in Preferences > Add-ons > Porterino"
-    if os.path.commonpath([os.path.abspath(staging_folder).lower(), os.path.abspath(game_folder).lower()]) == \
-            os.path.abspath(game_folder).lower():
+    game_abs, stage_abs = os.path.abspath(game_folder).lower(), os.path.abspath(staging_folder).lower()
+    if stage_abs == game_abs or stage_abs.startswith(game_abs.rstrip("\\/") + os.sep):
         return "The build folder must be OUTSIDE the game folder (Studio refuses it otherwise)"
     if is_game_running():
         return "skate. is running. Close the game first: a map cannot be replaced while the game has it open"
@@ -53,7 +54,9 @@ def start(blend, blender_exe, game_folder, studio_cli, staging_folder, time_of_d
         lines.append("echo Game starting.")
     lines.append("pause")
     script = os.path.join(tempfile.gettempdir(), "porterino_build_%s.bat" % mod_folder)
-    with open(script, "w", encoding="utf-8") as f:
+    with open(script, "w", encoding="utf-8", newline="") as f:
         f.write("\r\n".join(lines) + "\r\n")
+    if script_only:
+        return None, script
     subprocess.Popen(["cmd", "/c", script], creationflags=subprocess.CREATE_NEW_CONSOLE)
     return None
