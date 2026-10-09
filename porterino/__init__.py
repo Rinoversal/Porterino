@@ -4,7 +4,7 @@
 bl_info = {
     "name": "Porterino: ReSkate Map Toolkit",
     "author": "Carterino",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar (N) > Porterino",
     "description": "Check a map against skate. physics and rebuild it into the game with one button",
@@ -15,7 +15,7 @@ import bpy
 from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProperty, FloatVectorProperty,
                        IntProperty, StringProperty)
 
-from . import checks, rebuild
+from . import checks, library, rebuild
 
 ICONS = {"problem": "ERROR", "look": "INFO", "ok": "CHECKMARK"}
 
@@ -28,7 +28,22 @@ class PorterinoFinding(bpy.types.PropertyGroup):
     location: FloatVectorProperty(size=3)
 
 
+_category_items = []          # Blender needs the strings of a dynamic dropdown kept alive
+
+
+def _categories(self, context):
+    global _category_items
+    names = sorted(library.pieces_for(self.library_folder)) or ["(no pieces found)"]
+    _category_items = [(n, n, "") for n in names]
+    return _category_items
+
+
 class PorterinoSettings(bpy.types.PropertyGroup):
+    library_folder: StringProperty(name="Parts folder", subtype="DIR_PATH",
+                                   description="A folder of pieces (.blend, .fbx, .obj). Sub-folders become categories")
+    library_category: EnumProperty(name="Category", items=_categories)
+    library_snap: FloatProperty(name="Snap (m)", default=0.0, min=0.0, max=10.0,
+                                description="Round the placing position to this step. 0 = no snapping")
     hole_radius: FloatProperty(name="Radius (m)", default=150.0, min=10.0, max=3000.0,
                                description="How far from the player start (or the 3D cursor) to look for holes")
     lip_minimum: FloatProperty(name="Report from (cm)", default=3.5, min=1.0, max=8.0,
@@ -408,6 +423,54 @@ class PORTERINO_OT_quick_test(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class PORTERINO_OT_library_refresh(bpy.types.Operator):
+    bl_idname = "porterino.library_refresh"
+    bl_label = "Refresh"
+    bl_description = "Read the parts folder again after adding or removing pieces"
+
+    def execute(self, context):
+        found = library.pieces_for(context.scene.porterino.library_folder, refresh=True)
+        self.report({"INFO"}, "%d piece(s) in %d categor%s" % (sum(len(v) for v in found.values()), len(found),
+                                                                "y" if len(found) == 1 else "ies"))
+        return {"FINISHED"}
+
+
+class PORTERINO_OT_place_piece(bpy.types.Operator):
+    bl_idname = "porterino.place_piece"
+    bl_label = "Place piece"
+    bl_description = "Add this piece to the map at the 3D cursor"
+    bl_options = {"REGISTER", "UNDO"}
+    filepath: StringProperty()
+
+    def execute(self, context):
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        try:
+            new = library.place(context, self.filepath, context.scene.cursor.location.copy(), context.scene.porterino.library_snap)
+        except Exception as ex:
+            self.report({"ERROR"}, "Could not place it: %s" % ex)
+            return {"CANCELLED"}
+        self.report({"INFO"}, "Placed %d object(s) at the 3D cursor. Press G to move, R to rotate" % len(new))
+        return {"FINISHED"}
+
+
+class PORTERINO_OT_add_start(bpy.types.Operator):
+    bl_idname = "porterino.add_start"
+    bl_label = "Player start at cursor"
+    bl_description = "Puts the player start (an empty named 'spawn') at the 3D cursor, or moves the one you already have"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        start = checks.find_spawn(context.scene)
+        if start is None:
+            start = bpy.data.objects.new("spawn", None)
+            start.empty_display_type = "SINGLE_ARROW"
+            context.scene.collection.objects.link(start)
+        start.location = context.scene.cursor.location.copy()
+        self.report({"INFO"}, "Player start is at the 3D cursor")
+        return {"FINISHED"}
+
+
 class PorterinoPanel:
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -437,6 +500,30 @@ class PORTERINO_PT_checks(PorterinoPanel, bpy.types.Panel):
         col.operator("porterino.check_textures", icon="TEXTURE")
         col.operator("porterino.fix_textures", icon="FILE_IMAGE")
         col.operator("porterino.check_lights", icon="LIGHT")
+
+
+class PORTERINO_PT_library(PorterinoPanel, bpy.types.Panel):
+    bl_label = "Parts library"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        s = context.scene.porterino
+        col = self.layout.column(align=True)
+        col.prop(s, "library_folder", text="")
+        found = library.pieces_for(s.library_folder)
+        if not found:
+            col.label(text="Pick a folder of pieces")
+            col.label(text="(.blend, .fbx or .obj files)")
+        else:
+            row = col.row(align=True)
+            row.prop(s, "library_category", text="")
+            row.operator("porterino.library_refresh", text="", icon="FILE_REFRESH")
+            col.prop(s, "library_snap")
+            col.label(text="Click a piece: it lands on the cursor")
+            for name, path in found.get(s.library_category, [])[:80]:
+                col.operator("porterino.place_piece", text=name, icon="MESH_CUBE").filepath = path
+        col.separator()
+        col.operator("porterino.add_start", icon="EMPTY_SINGLE_ARROW")
 
 
 class PORTERINO_PT_shape(PorterinoPanel, bpy.types.Panel):
@@ -532,7 +619,8 @@ CLASSES = (PorterinoFinding, PorterinoSettings, PorterinoPreferences, PORTERINO_
            PORTERINO_OT_fix_solid, PORTERINO_OT_lips,
            PORTERINO_OT_transition, PORTERINO_OT_rim, PORTERINO_OT_routes, PORTERINO_OT_lights, PORTERINO_OT_all,
            PORTERINO_OT_textures, PORTERINO_OT_fix_textures, PORTERINO_OT_route_support, PORTERINO_OT_goto, PORTERINO_OT_set_lights, PORTERINO_OT_glow, PORTERINO_OT_scale, PORTERINO_OT_rebuild, PORTERINO_OT_quick_test,
-           PORTERINO_PT_checks, PORTERINO_PT_shape, PORTERINO_PT_results, PORTERINO_PT_lights, PORTERINO_PT_scale,
+           PORTERINO_OT_library_refresh, PORTERINO_OT_place_piece, PORTERINO_OT_add_start,
+           PORTERINO_PT_checks, PORTERINO_PT_library, PORTERINO_PT_shape, PORTERINO_PT_results, PORTERINO_PT_lights, PORTERINO_PT_scale,
            PORTERINO_PT_rebuild)
 
 

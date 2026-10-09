@@ -26,6 +26,7 @@ No AI needed. No command line needed. If you do use an AI agent or scripts, the 
 | Check textures / Fix textures | Finds textures that build empty ("image has no data") and re-saves them as PNG | Reproduced the error on a good JPEG; fix confirmed on test images |
 | Add deck under routes | Puts an invisible solid strip under bus and train routes that hang in mid-air | Tried on a real city map |
 | Quick test: selected only | Builds just the selected pieces as a small map and opens the game in it | Built and installed a test map; the open-in-map step tested on its own |
+| Parts library | Browse a folder of ready-made pieces by category and place them at the cursor, with snapping | Tested with .blend and .obj pieces |
 | Scale map | Scales everything and keeps lights and NPC routes matching | Used on released maps |
 | Rebuild and install | One button: save, compile with ReSkate Studio, install, start the game | Same command our own maps are built with |
 
@@ -71,6 +72,7 @@ Each tool is explained step by step, with what the numbers mean and how to fix w
 
 - [docs/CHECKS.md](docs/CHECKS.md) – holes, lips, bowls, coping, NPC routes
 - [docs/LIGHTING.md](docs/LIGHTING.md) – how lighting works in ReSkate maps and the lighting helper
+- [docs/LIBRARY.md](docs/LIBRARY.md) – the parts library: place ready-made pieces from a folder
 - [docs/REBUILD.md](docs/REBUILD.md) – the rebuild button and how to make test loops fast
 - [docs/FOR_AI.md](docs/FOR_AI.md) – running everything from the command line
 - [converters/README.md](converters/README.md) – bringing levels over from other games (coming)
