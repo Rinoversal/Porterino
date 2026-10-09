@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.blend
+*.blend1
+*.zip
+*.fbmod
+.reskate-studio-patch
+_test/

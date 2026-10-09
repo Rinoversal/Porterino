@@ -1,0 +1,103 @@
+# The map checks, one by one
+
+Every check puts its findings in the **Results** box. A red triangle is a problem, a blue "i" is something to look
+at, a tick means that check found nothing. The magnifier on a line moves the 3D cursor to the spot and centres the
+view on it. The full text is also in Blender's Text Editor as **Porterino report**, so you can copy it.
+
+The checks measure the mesh. They do not ride the map. Use them to find where to look, then ride it.
+
+## Find holes in the floor
+
+**What it finds:** floor you can see that has nothing solid under it. In game you fall through the map there.
+This usually happens when a floor piece has its collision set to "none", for example because it was treated as decoration.
+
+**How to run it**
+
+1. Set **Radius**. It searches a circle around the player start (an empty whose name starts with `spawn`, `start`
+   or `playerstart`). If there is none it uses the 3D cursor.
+2. Press **Find holes in the floor**.
+
+**Reading the result:** `18 m2 of drawn floor has nothing solid under it (floor_pit)` means a patch of that size, and
+the name is the mesh you are looking at.
+
+**How to fix it:** select that piece, and in ReSkate Studio's object settings set collision to triangle mesh. Or put
+a simple invisible collision plane under it.
+
+**It ignores on purpose:** pieces under 12 m2, and anything named like a tree, water, sky or backdrop.
+
+## Find lips at ramp entrances
+
+**What it finds:** a sharp step where the floor meets the bottom of a ramp, bank, quarter pipe, bowl or kicker.
+In skate. a step of a few centimetres can catch the wheels and stop you dead.
+
+**How to run it**
+
+1. Leave **Selected pieces only** off to check every piece whose name looks like a ramp (ramp, quarter, qp, bowl,
+   kicker, bank, spine, pyramid, funbox, roll in, wedge, hip, vert, pool).
+   Turn it on to check exactly the meshes you have selected, whatever they are called.
+2. Press **Find lips at ramp entrances**.
+
+**Reading the result:** `QP_03: sharp step up to 6.1 cm at its foot (typical 2.5 cm, 14 places)`. The cursor goes to
+the worst place.
+
+**How to fix it:** bring the ramp's bottom edge down to the floor, or add a thin wedge that starts at floor height.
+Aim for no step at all at an entrance.
+
+**Honest note:** this check has found steps in our own maps, but we have not finished ride-testing which sizes you can
+feel. Treat 3.5 cm and up as "ride this entrance first".
+
+## Measure bowl / quarter pipe
+
+**What it finds:** whether a transition will send you up or throw you outward, and whether it is smooth enough.
+
+**How to run it**
+
+1. Select the bowl or ramp mesh (several pieces are fine).
+2. Put the 3D cursor on the flat bottom: Shift + right-click on the floor of the bowl.
+3. Press **Measure bowl / quarter pipe**.
+
+It walks outward from the cursor in 32 directions and measures every wall it climbs.
+
+**Reading the result**
+
+- **Height:** floor to lip.
+- **Lip angle:** how steep the last part is. 90 is vertical. Under 75 it reports "you launch outward, not up".
+- **Radius:** rough size of the curve.
+- **Angle jumps N deg between two facets:** the curve is made of too few flat strips. Over 14 degrees it tells you
+  to add segments.
+
+**How to fix it:** add edge loops along the curve for kinks; make the top steeper or taller for a low lip angle.
+
+**The three numbers under the button** are yours to change: **Lip at least** (default 75), **Facet turn at most**
+(default 14) and **Look out to** (how far from the cursor it searches, default 12 m; raise it for a big bowl).
+
+**Honest note:** 75 and 14 degrees are starting values, not laws. If a bowl rides well with other numbers, tell us.
+
+## Check coping / rim curve
+
+**What it finds:** corners and long straight pieces along a grind curve, which make a grind jerk or drop.
+
+**How to run it:** select the curve object and press **Check coping / rim curve**.
+
+**Reading the result:** number of points, the sharpest turn between two segments, and the longest segment. It suggests
+staying under 10 degrees per point and 0.45 m per segment on a round bowl. Add points where it turns sharply.
+
+## Check pedestrians and traffic
+
+Needs ReSkate Studio's add-on. It reads the NPC routes in the scene and reports:
+
+- **Closed pedestrian loop:** walkers appear and vanish beside the player. Use an open path.
+- **Many spawn points on one route:** set the spacing near the route's length so one walker spawns.
+- **Points not over solid ground:** NPCs spawn off the map or fall.
+- **Passes within 12 m of the player start:** someone appears in your face on load.
+- **More than 3 pedestrian routes:** costs frame rate on slower PCs.
+
+## Check lights
+
+See [LIGHTING.md](LIGHTING.md).
+
+## Scale the whole map
+
+Set **Factor** (0.8 = 80% of the size) and press **Scale the whole map**. It scales about the world origin and also
+adjusts light power, light ranges and NPC route widths so the map looks and behaves the same, just smaller or bigger.
+Save a copy of the file first. One Undo reverts it.
