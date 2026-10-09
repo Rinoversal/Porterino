@@ -22,6 +22,10 @@ No AI needed. No command line needed. If you do use an AI agent or scripts, the 
 | NPC routes | Routes that pop in next to the player, spawn off the map or cost frame rate | Rules come from tester complaints on released maps |
 | Check lights | Lights with no range or time of day, hidden pieces that will not export, emission the game ignores | Emission result confirmed in game |
 | Lighting helper | Sets range and time of day on lights; adds a glow light in front of a sign | Glow method confirmed in game |
+| Seen but not solid | Drawn floors and ramps with no collision where you see them, plus a one-click fix | Found the ramps a tester rode through on a ported map |
+| Check textures / Fix textures | Finds textures that build empty ("image has no data") and re-saves them as PNG | Reproduced the error on a good JPEG; fix confirmed on test images |
+| Add deck under routes | Puts an invisible solid strip under bus and train routes that hang in mid-air | Tried on a real city map |
+| Quick test: selected only | Builds just the selected pieces as a small map and opens the game in it | Built and installed a test map; the open-in-map step tested on its own |
 | Scale map | Scales everything and keeps lights and NPC routes matching | Used on released maps |
 | Rebuild and install | One button: save, compile with ReSkate Studio, install, start the game | Same command our own maps are built with |
 

@@ -623,7 +623,164 @@ def check_lights(scene):
 
 
 # ---------------------------------------------------------------------------------------------------------------
-TIME_FLAGS = {"morning": 1, "noon": 2, "afternoon": 4, "evening": 8, "night": 16, "weatherday": 32, "weathernight": 64}
+SAFE_IMAGE_TYPES = (".png", ".dds")
+
+
+def _jpeg_info(path):
+    """(components, progressive) from a JPEG file's header, or None. 4 components = CMYK, which many tools cannot use."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read(1 << 20)
+    except OSError:
+        return None
+    if data[:2] != b"\xff\xd8":
+        return None
+    i = 2
+    while i + 9 < len(data):
+        if data[i] != 0xFF:
+            i += 1
+            continue
+        marker = data[i + 1]
+        if marker in (0xC0, 0xC1, 0xC2):
+            return data[i + 9], marker == 0xC2
+        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+            i += 2
+            continue
+        i += 2 + int.from_bytes(data[i + 2:i + 4], "big")
+    return None
+
+
+def _used_images(scene):
+    """{image: [material names]} for every image texture in a material that a mesh in the scene uses."""
+    used = {}
+    mats = {m for o in scene.objects if o.type == "MESH" for m in o.data.materials if m is not None}
+
+    def walk(tree, mat, seen):
+        if tree is None or tree in seen:
+            return
+        seen.add(tree)
+        for node in tree.nodes:
+            if node.bl_idname == "ShaderNodeTexImage" and node.image is not None:
+                used.setdefault(node.image, []).append(mat.name)
+            elif node.bl_idname == "ShaderNodeGroup":
+                walk(node.node_tree, mat, seen)
+    for mat in mats:
+        walk(mat.node_tree, mat, set())
+    return used
+
+
+def image_problem(img):
+    """Why this image would reach the map compiler empty, or None when it is fine. Returns (level, text)."""
+    import os
+    if img.source in ("GENERATED",) or (not img.filepath and img.packed_file is None):
+        if img.is_dirty or not img.filepath:
+            return "problem", "made inside Blender and never saved to a file: it will be empty in the build"
+    if img.source in ("MOVIE", "SEQUENCE", "TILED"):
+        return "look", "is a %s image: only single still images are safe" % img.source.lower()
+    path = bpy.path.abspath(img.filepath, library=img.library) if img.filepath else ""
+    if img.packed_file is None and img.source == "FILE":
+        if not path or not os.path.isfile(path):
+            return "problem", "file not found: %s" % (img.filepath or "(no path)")
+        if os.path.getsize(path) == 0:
+            return "problem", "file is empty (0 bytes): %s" % os.path.basename(path)
+        if path.lower().endswith((".jpg", ".jpeg", ".jpe")):
+            info = _jpeg_info(path)
+            if info is None:
+                return "problem", "has a .jpg name but is not a readable JPEG file (renamed or damaged?)"
+            if info[0] == 4:
+                return "problem", "is a CMYK JPEG (a print format): re-save it as RGB"
+    try:
+        w, h = int(img.size[0]), int(img.size[1])       # asking for the size makes Blender load the file
+    except Exception:
+        w = h = 0
+    if w <= 0 or h <= 0 or int(getattr(img, "channels", 0)) <= 0:
+        return "problem", "Blender cannot read any pixels from it (unsupported or damaged file)"
+    if not bpy.data.filepath and img.filepath.startswith("//"):
+        return "look", "has a path relative to a .blend that is not saved yet"
+    ext = os.path.splitext(path)[1].lower() if path else ""
+    if img.packed_file is None and ext not in SAFE_IMAGE_TYPES:
+        # ReSkate Studio 2.11 copies .png and .dds files into the build as they are. Every other type is converted
+        # during the build, and that conversion fails ("does not have any image data") whenever Blender has not
+        # already loaded the picture into memory, so the same file builds one day and not the next.
+        return "look", "is a %s file: the build has to convert it, which fails at random. Save it as PNG" % (ext or "non-PNG")
+    return None
+
+
+def check_textures(scene):
+    """Images that would arrive empty at the map compiler ('image has no data / no pixels')."""
+    used = _used_images(scene)
+    out, bad = [], 0
+    for img, mats in sorted(used.items(), key=lambda t: t[0].name.lower()):
+        problem = image_problem(img)
+        if problem is None:
+            continue
+        bad += problem[0] == "problem"
+        out.append(finding("textures", problem[0], "%s %s (used by %s)" % (
+            img.name, problem[1], ", ".join(sorted(set(mats))[:3]) + ("..." if len(set(mats)) > 3 else ""))))
+    jpgs = sum(1 for img in used if img.filepath.lower().endswith((".jpg", ".jpeg")))
+    if not out:
+        return [finding("textures", "ok", "%d textures in use, all readable PNG or DDS files." % len(used))]
+    return [finding("textures", "problem" if bad else "look",
+                    "%d of %d textures in use will not build as they are. 'Fix textures' repairs what it can." % (len(out), len(used)))] + out
+
+
+def fix_textures(scene, folder_name="porterino_textures"):
+    """Writes every readable texture in use as a PNG in a folder next to the .blend and points the materials at it,
+    so the build no longer depends on JPEG variants, far-away folders or unsaved images.
+    Returns (fixed, still_broken) where still_broken is a list of (image name, reason)."""
+    import os
+    if not bpy.data.filepath:
+        return 0, [("(file)", "save the .blend first, so the textures have somewhere to live")]
+    folder = os.path.join(os.path.dirname(bpy.data.filepath), folder_name)
+    os.makedirs(folder, exist_ok=True)
+    fixed, broken, taken = 0, [], set()
+    for img in _used_images(scene):
+        if img.source in ("MOVIE", "SEQUENCE", "TILED"):
+            continue
+        try:
+            w, h = int(img.size[0]), int(img.size[1])
+        except Exception:
+            w = h = 0
+        if w <= 0 or h <= 0:
+            problem = image_problem(img)
+            broken.append((img.name, problem[1] if problem else "no pixels"))
+            continue
+        stem = "".join(c if c.isalnum() or c in "-_." else "_" for c in os.path.splitext(img.name)[0]) or "texture"
+        name, k = stem, 1
+        while name.lower() in taken:
+            k += 1
+            name = "%s_%d" % (stem, k)
+        taken.add(name.lower())
+        target = os.path.join(folder, name + ".png")
+        current = bpy.path.abspath(img.filepath) if img.filepath else ""
+        if (img.packed_file is None and img.source == "FILE" and not img.is_dirty and os.path.isfile(current)
+                and os.path.splitext(current)[1].lower() in SAFE_IMAGE_TYPES):
+            continue                                        # already a PNG or DDS file on disk: nothing to do
+        try:
+            _ = img.pixels[0]                               # make Blender load the picture before it is written out
+            old_format = img.file_format
+            img.file_format = "PNG"
+            try:
+                img.save(filepath=target, save_copy=True)   # writes the PNG, leaves this image pointing where it was
+            finally:
+                img.file_format = old_format
+            if not os.path.isfile(target) or os.path.getsize(target) == 0:
+                raise RuntimeError("no file was written")
+        except Exception as ex:
+            broken.append((img.name, "could not be written: %s" % str(ex).strip()))
+            continue
+        if img.packed_file is not None:
+            img.unpack(method="REMOVE")
+        img.source = "FILE"
+        img.filepath = bpy.path.relpath(target)
+        img.file_format = "PNG"
+        img.reload()
+        fixed += 1
+    return fixed, broken
+
+
+# ---------------------------------------------------------------------------------------------------------------
+TIME_FLAGS ={"morning": 1, "noon": 2, "afternoon": 4, "evening": 8, "night": 16, "weatherday": 32, "weathernight": 64}
 
 
 def set_light(obj, range_m, times):

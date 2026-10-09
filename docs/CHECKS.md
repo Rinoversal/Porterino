@@ -128,6 +128,33 @@ rails and sleepers with gaps between them, and with road tiles that have a hole 
 In game the strip cannot be seen but is solid, so a skater who reaches an elevated track can stand between the rails.
 If you would rather not have that, delete the strip and lower the route's weight or shorten the route instead.
 
+## Check textures ("image has no data")
+
+**What it finds:** textures that will reach the build empty. The usual message is `Image '...' does not have any
+image data` or `image has no pixels`, and it tends to come and go: the same file builds one day and not the next.
+
+**Why it comes and goes:** ReSkate Studio 2.11 copies `.png` and `.dds` textures into the build as they are, which
+always works. Every other type, JPEG included, is converted during the build, and that conversion fails whenever
+Blender has not already loaded the picture into memory. So a JPEG that is fine in every other way can still fail.
+
+**How to run it:** press **Check textures**. It lists, for every texture a material in the scene uses:
+
+| It says | Meaning |
+|---|---|
+| is a .jpg file | works only by luck: save it as PNG |
+| file not found | the path is broken (file moved, renamed, or on a drive that is not connected) |
+| file is empty (0 bytes) | a failed download or copy |
+| has a .jpg name but is not a readable JPEG | a web page or another format saved with the wrong name |
+| is a CMYK JPEG | a print-format JPEG: re-save as RGB |
+| made inside Blender and never saved | painted or generated in Blender, exists only in memory |
+
+**How to fix it:** press **Fix textures**. Every texture Blender can read is saved as a PNG in a folder called
+`porterino_textures` next to your .blend, and the materials are pointed at those files. Your original pictures are
+not changed or deleted. Then save the .blend. Textures that cannot be read at all (missing, empty, not really an
+image) stay on the list: re-link those by hand with **File > External Data > Find Missing Files**, or replace them.
+
+Save the .blend first: the fix needs to know where to put the folder.
+
 ## Check lights
 
 See [LIGHTING.md](LIGHTING.md).

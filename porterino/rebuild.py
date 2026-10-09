@@ -15,9 +15,11 @@ def is_game_running():
 
 
 def start(blend, blender_exe, game_folder, studio_cli, staging_folder, time_of_day="noon", bake=False, open_sky=False,
-          launch=True, startup_command="", script_only=False):
+          launch=True, startup_command="", script_only=False, auto_load=True, before=()):
     """Returns an error message, or None when the build window was started.
-    script_only=True writes the build script and returns its path in a tuple (None, path) without running it."""
+    script_only=True writes the build script and returns its path in a tuple (None, path) without running it.
+    auto_load=True makes the game go straight into the freshly built map (the level name is read from the map's own
+    reskate-levels.json after the build); startup_command, when given, is used instead."""
     game_folder = os.path.normpath(game_folder) if game_folder else ""
     staging_folder = os.path.normpath(staging_folder) if staging_folder else ""
     if not game_folder or not os.path.isdir(os.path.join(game_folder, "Mods")):
@@ -34,6 +36,13 @@ def start(blend, blender_exe, game_folder, studio_cli, staging_folder, time_of_d
     name = os.path.splitext(os.path.basename(blend))[0]
     mod_folder = "".join(c if c.isalnum() or c in "-_" else "-" for c in name).strip("-") or "My-Map"
     stage = os.path.join(staging_folder, mod_folder)
+    # Windows refuses paths over about 260 characters, and the build writes the level's name twice inside the build
+    # folder (...\Patch\win32\levels\game\dingolevel_reskate_<name>\dingolevel_reskate_<name>.toc).
+    level = "dingolevel_reskate_" + "".join(c if c.isalnum() else "_" for c in name).lower()
+    longest = len(os.path.abspath(stage)) + len("\\Patch\\win32\\levels\\game\\") + 2 * len(level) + len("\\.toc") + 12
+    if longest > 250:
+        return ("The build folder path plus the map name is too long for Windows (%d characters, limit about 250). "
+                "Use a short build folder such as C:\\RSBuild, or a shorter .blend name" % longest)
     os.makedirs(stage, exist_ok=True)
     cmd = [studio_cli, "compile-map", game_folder, blend, stage, "--mod-folder", mod_folder, "--blender", blender_exe,
            "--pause-map", "3d", "--time-of-day", time_of_day, "--no-lods"]
@@ -42,16 +51,27 @@ def start(blend, blender_exe, game_folder, studio_cli, staging_folder, time_of_d
         if open_sky:
             cmd.append("--enlighten-open-sky")
     cmd.append("--deploy")
-    lines = ["@echo off", "title Porterino build: " + name, "echo Building %s ..." % name,
-             subprocess.list2cmdline(cmd),
+    lines = ["@echo off", "title Porterino build: " + name, "echo Building %s ..." % name]
+    for extra in before:                                    # steps to run first, each a command list
+        lines += [subprocess.list2cmdline(extra),
+                  "if errorlevel 1 (echo. & echo PREPARING THE TEST FILE FAILED. Read the lines above. & pause & exit /b 1)"]
+    lines += [subprocess.list2cmdline(cmd),
              "if errorlevel 1 (echo. & echo BUILD FAILED. Read the lines above. & pause & exit /b 1)",
              "echo. & echo Installed to Mods\\%s" % mod_folder]
     launcher = os.path.join(game_folder, "ReSkateLauncher.exe")
     if launch and os.path.isfile(launcher):
         if startup_command.strip():
             lines.append('set "RESKATE_STARTUP_COMMANDS=%s"' % startup_command.strip())
+            lines.append("echo Game starting with your load command.")
+        elif auto_load:
+            levels = os.path.join(game_folder, "Mods", mod_folder, "reskate-levels.json")
+            lines += ['set "ASSET="',
+                      # no pipe in this line: inside the quotes a batch file would pass its escape character along
+                      'for /f "usebackq delims=" %%%%A in (`powershell -NoProfile -Command "(ConvertFrom-Json (Get-Content -Raw '
+                      '-LiteralPath \'%s\')).levels[0].asset"`) do set "ASSET=%%%%A"' % levels.replace("'", "''"),
+                      'if defined ASSET (set "RESKATE_STARTUP_COMMANDS=load %ASSET%;wait 30" & echo Game starting straight into the map.) '
+                      'else (echo Could not read the level name: pick the map from the pause menu.)']
         lines.append('start "" /D "%s" "%s" --no-gui --no-update' % (game_folder, launcher))
-        lines.append("echo Game starting.")
     lines.append("pause")
     script = os.path.join(tempfile.gettempdir(), "porterino_build_%s.bat" % mod_folder)
     with open(script, "w", encoding="utf-8", newline="") as f:

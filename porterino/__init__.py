@@ -4,7 +4,7 @@
 bl_info = {
     "name": "Porterino: ReSkate Map Toolkit",
     "author": "Carterino",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar (N) > Porterino",
     "description": "Check a map against skate. physics and rebuild it into the game with one button",
@@ -56,6 +56,8 @@ class PorterinoSettings(bpy.types.PropertyGroup):
     open_sky: BoolProperty(name="Enclosed level", default=False,
                            description="Indoor or walled-in level: stops the skater being a black silhouette")
     launch_after: BoolProperty(name="Start the game after", default=True)
+    auto_load: BoolProperty(name="Go straight into the map", default=True,
+                            description="After the build the game opens directly in this map, skipping the menu")
     map_asset: StringProperty(name="Load command", default="",
                               description="Optional. A console line run at startup, for example: load levels/game/my_map/my_map. "
                                           "Leave empty to pick the map from the pause menu")
@@ -209,6 +211,35 @@ class PORTERINO_OT_lights(PorterinoCheck, bpy.types.Operator):
         return checks.check_lights(context.scene)
 
 
+class PORTERINO_OT_textures(PorterinoCheck, bpy.types.Operator):
+    bl_idname = "porterino.check_textures"
+    bl_label = "Check textures"
+    bl_description = ("Textures that would reach the build empty ('image has no data'): missing files, empty or damaged "
+                      "JPEGs, CMYK JPEGs, images made in Blender and never saved")
+    check_name = "textures"
+
+    def measure(self, context, depsgraph):
+        return checks.check_textures(context.scene)
+
+
+class PORTERINO_OT_fix_textures(bpy.types.Operator):
+    bl_idname = "porterino.fix_textures"
+    bl_label = "Fix textures"
+    bl_description = ("Saves every readable texture as a PNG in a 'porterino_textures' folder next to the .blend and points "
+                      "the materials at it. Your original files are not changed")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        fixed, broken = checks.fix_textures(context.scene)
+        show(context, checks.check_textures(context.scene), "textures")
+        if broken:
+            self.report({"WARNING"}, "%d texture(s) saved as PNG; %d still need you: %s" % (
+                fixed, len(broken), "; ".join("%s (%s)" % b for b in broken[:3])))
+        else:
+            self.report({"INFO"}, "%d texture(s) saved as PNG next to the .blend. Save the file to keep the change" % fixed)
+        return {"FINISHED"}
+
+
 class PORTERINO_OT_all(bpy.types.Operator):
     bl_idname = "porterino.check_all"
     bl_label = "Run all checks"
@@ -217,7 +248,7 @@ class PORTERINO_OT_all(bpy.types.Operator):
     def execute(self, context):
         context.scene.porterino.findings.clear()
         for op in (bpy.ops.porterino.check_floor, bpy.ops.porterino.check_lips, bpy.ops.porterino.check_routes,
-                   bpy.ops.porterino.check_lights):
+                   bpy.ops.porterino.check_lights, bpy.ops.porterino.check_textures):
             op()
         return {"FINISHED"}
 
@@ -321,11 +352,59 @@ class PORTERINO_OT_rebuild(bpy.types.Operator):
             blend=bpy.data.filepath, blender_exe=bpy.app.binary_path,
             game_folder=bpy.path.abspath(prefs.game_folder), studio_cli=bpy.path.abspath(prefs.studio_cli),
             staging_folder=bpy.path.abspath(prefs.staging_folder), time_of_day=s.time_of_day,
-            bake=s.bake_lighting, open_sky=s.open_sky, launch=s.launch_after, startup_command=s.map_asset)
+            bake=s.bake_lighting, open_sky=s.open_sky, launch=s.launch_after, startup_command=s.map_asset,
+            auto_load=s.auto_load)
         if error:
             self.report({"ERROR"}, error)
             return {"CANCELLED"}
         self.report({"INFO"}, "Build started in its own window. Blender stays usable")
+        return {"FINISHED"}
+
+
+class PORTERINO_OT_quick_test(bpy.types.Operator):
+    bl_idname = "porterino.quick_test"
+    bl_label = "Quick test: selected only"
+    bl_description = ("Builds ONLY the selected objects as a small separate test map and opens the game in it. The skater "
+                      "starts at the 3D cursor. Much faster than rebuilding the whole map; your real map is not touched")
+
+    def execute(self, context):
+        import os
+        prefs = context.preferences.addons[__package__].preferences
+        s = context.scene.porterino
+        picked = [o for o in context.selected_objects if o.type in ("MESH", "CURVE", "LIGHT", "EMPTY")]
+        if not any(o.type == "MESH" for o in picked):
+            self.report({"ERROR"}, "Select the pieces to test first (include some floor to land on)")
+            return {"CANCELLED"}
+        staging = bpy.path.abspath(prefs.staging_folder)
+        if not staging:
+            self.report({"ERROR"}, "Set a build folder in Preferences > Add-ons > Porterino")
+            return {"CANCELLED"}
+        base = os.path.splitext(os.path.basename(bpy.data.filepath))[0] if bpy.data.filepath else "Untitled"
+        folder = os.path.join(staging, "_quick_tests")
+        os.makedirs(folder, exist_ok=True)
+        base = base[:24].strip() or "Map"                    # short name: the build repeats it inside long paths
+        target = os.path.join(folder, base + " QT.blend")
+        # Save a copy of this file (your open file and its name are not changed), then let the build window strip the
+        # copy down to the selection in a separate Blender before compiling it.
+        import json
+        job = os.path.join(folder, base + " QT.json")
+        try:
+            with open(job, "w", encoding="utf-8") as f:
+                json.dump({"keep": [o.name for o in picked], "start": list(context.scene.cursor.location)}, f)
+            bpy.ops.wm.save_as_mainfile(filepath=target, copy=True, check_existing=False)
+        except Exception as ex:
+            self.report({"ERROR"}, "Could not write the test file: %s" % ex)
+            return {"CANCELLED"}
+        strip = [bpy.app.binary_path, "--background", target, "--python",
+                 os.path.join(os.path.dirname(os.path.abspath(__file__)), "quick_strip.py"), "--", job]
+        error = rebuild.start(
+            blend=target, blender_exe=bpy.app.binary_path, game_folder=bpy.path.abspath(prefs.game_folder),
+            studio_cli=bpy.path.abspath(prefs.studio_cli), staging_folder=staging, time_of_day=s.time_of_day,
+            bake=False, open_sky=False, launch=s.launch_after, startup_command="", auto_load=True, before=[strip])
+        if error:
+            self.report({"ERROR"}, error)
+            return {"CANCELLED"}
+        self.report({"INFO"}, "Quick test of %d object(s) building in its own window. Skater starts at the 3D cursor" % len(picked))
         return {"FINISHED"}
 
 
@@ -354,6 +433,9 @@ class PORTERINO_PT_checks(PorterinoPanel, bpy.types.Panel):
         col.separator()
         col.operator("porterino.check_routes", icon="OUTLINER_OB_ARMATURE")
         col.operator("porterino.route_support", icon="MOD_SOLIDIFY")
+        col.separator()
+        col.operator("porterino.check_textures", icon="TEXTURE")
+        col.operator("porterino.fix_textures", icon="FILE_IMAGE")
         col.operator("porterino.check_lights", icon="LIGHT")
 
 
@@ -438,15 +520,18 @@ class PORTERINO_PT_rebuild(PorterinoPanel, bpy.types.Panel):
         col.prop(s, "bake_lighting")
         col.prop(s, "open_sky")
         col.prop(s, "launch_after")
-        col.prop(s, "map_asset")
+        col.prop(s, "auto_load")
         col.operator("porterino.rebuild", icon="FILE_REFRESH")
+        col.separator()
+        col.label(text="Select pieces, cursor = start:")
+        col.operator("porterino.quick_test", icon="PLAY")
         col.label(text="Paths: Preferences > Add-ons > Porterino")
 
 
 CLASSES = (PorterinoFinding, PorterinoSettings, PorterinoPreferences, PORTERINO_OT_floor, PORTERINO_OT_solid,
            PORTERINO_OT_fix_solid, PORTERINO_OT_lips,
            PORTERINO_OT_transition, PORTERINO_OT_rim, PORTERINO_OT_routes, PORTERINO_OT_lights, PORTERINO_OT_all,
-           PORTERINO_OT_route_support, PORTERINO_OT_goto, PORTERINO_OT_set_lights, PORTERINO_OT_glow, PORTERINO_OT_scale, PORTERINO_OT_rebuild,
+           PORTERINO_OT_textures, PORTERINO_OT_fix_textures, PORTERINO_OT_route_support, PORTERINO_OT_goto, PORTERINO_OT_set_lights, PORTERINO_OT_glow, PORTERINO_OT_scale, PORTERINO_OT_rebuild, PORTERINO_OT_quick_test,
            PORTERINO_PT_checks, PORTERINO_PT_shape, PORTERINO_PT_results, PORTERINO_PT_lights, PORTERINO_PT_scale,
            PORTERINO_PT_rebuild)
 
