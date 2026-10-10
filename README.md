@@ -23,6 +23,8 @@ No AI needed. No command line needed. If you do use an AI agent or scripts, the 
 | Check lights | Lights with no range or time of day, hidden pieces that will not export, emission the game ignores | Emission result confirmed in game |
 | Lighting helper | Sets range and time of day on lights; adds a glow light in front of a sign | Glow method confirmed in game |
 | Seen but not solid | Drawn floors and ramps with no collision where you see them, plus a one-click fix | Found the ramps a tester rode through on a ported map |
+| Check materials / Fix materials | Finds pieces that build as a flat colour (no Principled BSDF, picture not wired to Base Color, no UV map) and repairs them | Tested on recreated cases, not yet on a real downloaded model |
+| Check surface sounds / Set surface | Finds pieces that make the wrong sound (nothing chosen, or a material overriding the object) and sets object and materials together | Tested on recreated cases |
 | Check textures / Fix textures | Finds textures that build empty ("image has no data") and re-saves them as PNG | Reproduced the error on a good JPEG; fix confirmed on test images |
 | Add deck under routes | Puts an invisible solid strip under bus and train routes that hang in mid-air | Tried on a real city map |
 | Quick test: selected only | Builds just the selected pieces as a small map and opens the game in it | Built and installed a test map; the open-in-map step tested on its own |

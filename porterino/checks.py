@@ -847,6 +847,345 @@ def fix_textures(scene, folder_name="porterino_textures"):
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# Materials: why a piece builds without its texture.
+# The map build reads ONE thing for a material's picture: the Base Color input of its Principled BSDF. A texture
+# reaches the game when an Image Texture is wired straight into it. Anything in between is baked if the mesh has a
+# UV map, and otherwise replaced by the plain colour of the socket. A material with no Principled BSDF, or a mesh
+# with no UV map, comes out as one flat colour however good it looks in Blender.
+DATA_MAP = re.compile(r"normal|nrm|_nor|_n\b|rough|rgh|metal|mtl|spec|gloss|_ao\b|occlusion|height|disp|bump|opacity|alpha|mask|emis|orm\b", re.I)
+
+
+def _upstream(socket):
+    """(node, output socket) feeding this input, looking through reroutes; (None, None) when nothing is linked."""
+    for _ in range(64):
+        if socket is None or not socket.is_linked:
+            return None, None
+        link = socket.links[0]
+        if link.from_node.type != "REROUTE":
+            return link.from_node, link.from_socket
+        socket = link.from_node.inputs[0]
+    return None, None
+
+
+def _find_principled(mat):
+    """The shader the build reads: the Principled BSDF reached from the Material Output, else any one in the tree."""
+    tree = mat.node_tree
+    if tree is None:
+        return None
+    outputs = sorted((n for n in tree.nodes if n.type == "OUTPUT_MATERIAL"), key=lambda n: (not n.is_active_output, n.name))
+    stack, seen = [], set()
+    for out in outputs:
+        surface = out.inputs.get("Surface")
+        if surface is not None and surface.is_linked:
+            stack += [link.from_node for link in surface.links]
+    while stack:
+        node = stack.pop(0)
+        if node.name in seen:
+            continue
+        seen.add(node.name)
+        if node.type == "BSDF_PRINCIPLED":
+            return node
+        for s in node.inputs:
+            stack += [link.from_node for link in s.links]
+    return next((n for n in sorted(tree.nodes, key=lambda n: n.name) if n.type == "BSDF_PRINCIPLED"), None)
+
+
+def _image_behind(socket):
+    """The nearest Image Texture node (with a picture) upstream of a socket, or None."""
+    stack = [link.from_node for link in socket.links] if socket is not None and socket.is_linked else []
+    seen = set()
+    while stack and len(seen) < 300:
+        node = stack.pop(0)
+        if node.name in seen:
+            continue
+        seen.add(node.name)
+        if node.type == "TEX_IMAGE" and node.image is not None:
+            return node
+        for s in node.inputs:
+            stack += [link.from_node for link in s.links]
+    return None
+
+
+def _colour_image_node(tree):
+    """The Image Texture in a material most likely to be its colour picture (not a normal, roughness or mask map)."""
+    nodes = [n for n in tree.nodes if n.type == "TEX_IMAGE" and n.image is not None]
+    if not nodes:
+        return None
+
+    def score(n):
+        name = n.image.name + " " + n.name + " " + n.label
+        data = bool(DATA_MAP.search(name)) or n.image.colorspace_settings.name.lower() in ("non-color", "raw")
+        named = bool(re.search(r"diff|albedo|base|col|color|colour", name, re.I))
+        return (data, not named, n.name)
+    return sorted(nodes, key=score)[0]
+
+
+def material_problem(mat):
+    """Why this material would build as a flat colour, or None when its texture reaches the game.
+    Returns (level, text, kind); kind names the repair fix_materials can make, or None."""
+    tree = mat.node_tree
+    if tree is None:
+        return "problem", "has no node setup: the build cannot read a texture from it", None
+    bsdf = _find_principled(mat)
+    picture = _colour_image_node(tree)
+    if bsdf is None:
+        shaders = sorted({n.bl_label for n in tree.nodes if n.type.startswith("BSDF") or n.type in (
+            "EMISSION", "MIX_SHADER", "ADD_SHADER", "GROUP", "EEVEE_SPECULAR")}) or ["no shader"]
+        return ("problem", "has no Principled BSDF (it uses %s). The build reads only Principled, so it comes out as a "
+                           "flat colour" % ", ".join(shaders[:3]), "no_principled" if picture else None)
+    base = bsdf.inputs.get("Base Color")
+    if base is None:
+        return None
+    node, _out = _upstream(base)
+    if node is None:
+        if picture is not None:
+            return ("look", "has a picture (%s) that is not connected to Base Color, so it builds as a flat colour"
+                    % picture.image.name, "unlinked")
+        return None                                         # a plain colour on purpose
+    if node.type == "TEX_IMAGE":
+        if node.image is None:
+            return "problem", "its Image Texture node has no picture chosen", None
+        vnode, vout = _upstream(node.inputs.get("Vector"))
+        if vnode is not None and vnode.type == "TEX_COORD" and vout is not None and vout.name != "UV":
+            return ("look", "places its picture by '%s' coordinates. The build only uses the UV map, so it will sit "
+                            "differently in game" % vout.name, None)
+        if vnode is not None and vnode.type == "MAPPING":
+            return ("look", "uses a Mapping node (scale, offset or rotation). The build uses the plain UV map, so the "
+                            "picture may be a different size in game: apply the scale to the UVs instead", None)
+        return None
+    behind = _image_behind(base)
+    what = ("the node group '%s'" % node.node_tree.name) if node.type == "GROUP" and node.node_tree else "a %s node" % node.bl_label
+    if behind is not None:
+        if node.type in ("MIX", "MIX_RGB") and str(getattr(node, "blend_type", "")) == "MULTIPLY":
+            return None                                     # a picture multiplied by a colour is carried across
+        return ("look", "Base Color goes through %s before it reaches the picture (%s). The build tries to bake that and "
+                        "falls back to a flat colour when it cannot" % (what, behind.image.name), "indirect")
+    if picture is not None:
+        return ("look", "Base Color comes from %s; its picture (%s) sits where the build cannot follow"
+                % (what, picture.image.name), "indirect")
+    return ("look", "Base Color comes from %s with no picture behind it (a procedural colour). It is baked only when "
+                    "the mesh has a UV map" % what, None)
+
+
+def _material_users(scene):
+    """{material: [objects]} for mesh objects in the scene."""
+    users = {}
+    for obj in scene.objects:
+        if obj.type == "MESH":
+            for mat in obj.data.materials:
+                if mat is not None:
+                    users.setdefault(mat, []).append(obj)
+    return users
+
+
+def check_materials(scene):
+    """Pieces that will build as a flat colour: no UV map, no Principled BSDF, or a picture the build cannot follow."""
+    out, bad = [], 0
+    users = _material_users(scene)
+    for mat, objs in sorted(users.items(), key=lambda t: t[0].name.lower()):
+        problem = material_problem(mat)
+        if problem is None:
+            continue
+        bad += problem[0] == "problem"
+        names = sorted({o.name for o in objs})
+        out.append(finding("materials", problem[0], "Material '%s' %s. Used by %s%s" % (
+            mat.name, problem[1], ", ".join(names[:3]), "..." if len(names) > 3 else ""), objs[0].matrix_world.translation))
+    for obj in scene.objects:
+        if obj.type != "MESH" or not obj.data.polygons:
+            continue
+        me = obj.data
+        textured = [m for m in me.materials if m is not None and m.node_tree is not None and _colour_image_node(m.node_tree)]
+        if textured and not me.uv_layers:
+            bad += 1
+            out.append(finding("materials", "problem", "%s has no UV map, so its picture cannot be placed and it builds as "
+                                                       "one flat colour. 'Fix materials' gives it one" % obj.name,
+                               obj.matrix_world.translation))
+        if not [m for m in me.materials if m is not None]:
+            out.append(finding("materials", "look", "%s has no material: it builds in plain grey" % obj.name,
+                               obj.matrix_world.translation))
+        if obj.library is not None or me.library is not None:
+            out.append(finding("materials", "look", "%s is linked from another .blend. Make it local (Object > Relations > "
+                                                    "Make Local > All) so it is built into the map" % obj.name,
+                               obj.matrix_world.translation))
+    if not out:
+        return [finding("materials", "ok", "%d materials checked: every picture is wired where the build can read it." % len(users))]
+    return [finding("materials", "problem" if bad else "look",
+                    "%d thing(s) will build without their picture. 'Fix materials' repairs what it can." % len(out))] + out
+
+
+def fix_materials(scene, context=None):
+    """Repairs what check_materials reports, where it safely can:
+    wires the colour picture straight into Base Color, builds a Principled BSDF for materials that have none, and
+    adds a UV map (Smart UV Project) to textured meshes that have none.
+    Returns (materials rewired, meshes given UVs, [(name, reason)] left for a person)."""
+    rewired, left = 0, []
+    for mat in _material_users(scene):
+        problem = material_problem(mat)
+        if problem is None:
+            continue
+        kind = problem[2]
+        tree = mat.node_tree
+        if kind is None or tree is None:
+            if problem[0] == "problem":
+                left.append((mat.name, problem[1]))
+            continue
+        picture = _colour_image_node(tree)
+        bsdf = _find_principled(mat)
+        if kind == "no_principled":
+            bsdf = tree.nodes.new("ShaderNodeBsdfPrincipled")
+            out = next((n for n in tree.nodes if n.type == "OUTPUT_MATERIAL" and n.is_active_output), None) or \
+                next((n for n in tree.nodes if n.type == "OUTPUT_MATERIAL"), None) or tree.nodes.new("ShaderNodeOutputMaterial")
+            bsdf.location = (out.location.x - 300, out.location.y)
+            tree.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+        elif kind == "indirect":
+            picture = _image_behind(bsdf.inputs["Base Color"]) or picture
+        if picture is None or bsdf is None:
+            left.append((mat.name, problem[1]))
+            continue
+        tree.links.new(picture.outputs["Color"], bsdf.inputs["Base Color"])
+        rewired += 1
+    unwrapped = 0
+    if context is not None:
+        need = [o for o in scene.objects if o.type == "MESH" and o.data.polygons and not o.data.uv_layers and
+                any(m is not None and m.node_tree is not None and _colour_image_node(m.node_tree) for m in o.data.materials)]
+        done_meshes = set()
+        for obj in need:
+            if obj.data.name in done_meshes or obj.data.library is not None:
+                continue
+            done_meshes.add(obj.data.name)
+            try:
+                for o in context.view_layer.objects:
+                    o.select_set(False)
+                obj.select_set(True)
+                context.view_layer.objects.active = obj
+                bpy.ops.object.mode_set(mode="EDIT")
+                bpy.ops.mesh.select_all(action="SELECT")
+                bpy.ops.uv.smart_project()
+                bpy.ops.object.mode_set(mode="OBJECT")
+                unwrapped += 1
+            except Exception as ex:
+                try:
+                    bpy.ops.object.mode_set(mode="OBJECT")
+                except Exception:
+                    pass
+                left.append((obj.name, "could not be given a UV map: %s" % str(ex).strip()[:80]))
+    return rewired, unwrapped, left
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Surfaces: why a piece makes the wrong sound.
+# In ReSkate Studio every object and every material has a "Base Surface / Audio Donor". The MATERIAL's choice wins
+# over the object's, and a piece nobody set uses the generic default. So a plywood ramp sounds like concrete either
+# because nothing was chosen, or because its material carries a choice that beats the one made on the object.
+SURFACE_HINTS = (("Wood", r"wood|ply|plank|timber|lumber|pallet|crate|deck(?!al)"), ("Metal", r"metal|steel|iron|alumin|car\b|wreck|vehicle|pipe|rail|barrel|drum|dumpster"),
+                 ("Plastic", r"plastic|bin\b|trash|garbage|rubbish|bag\b|cone|barrier"), ("Cardboard", r"cardboard|carton|box\b"),
+                 ("Concrete", r"concrete|cement|curb|kerb|slab|pavement"), ("Asphalt", r"asphalt|tarmac|road"),
+                 ("Brick", r"brick"), ("Glass", r"glass|window"), ("Grass", r"grass|lawn|hedge"), ("Earth", r"dirt|soil|mud|earth"),
+                 ("Gravel", r"gravel"), ("Sand", r"sand\b"), ("Rubber", r"rubber|tyre|tire"))
+
+
+def surface_choices(owner="Object"):
+    """[(identifier, label)] of the surfaces ReSkate Studio offers, without the clothing ones; [] without its add-on."""
+    group = getattr(bpy.types, owner).bl_rna.properties.get("sk8_object" if owner == "Object" else "sk8_material")
+    prop = group.fixed_type.properties.get("collision_material") if group is not None else None
+    if prop is None:
+        return []
+    rows, seen = [], set()
+    for e in prop.enum_items:
+        label = re.sub(r"^\d+\s*-\s*", "", e.name).strip()
+        # keep the plain surfaces: not the clothing ones, and not the "X + Y behavior" variants
+        if label in seen or " + " in label or re.match(r"Clothing|Footwear|Native material|Camera|Wipeout|Jump Pad", label) \
+                or re.search(r"surface$", label):
+            continue
+        seen.add(label)
+        rows.append((e.identifier, label))
+    return sorted(rows, key=lambda r: (r[1] != "Default", r[1]))
+
+
+def _chosen_surface(owner, group):
+    """The surface identifier explicitly chosen on an object or material, or None when it was never set."""
+    settings = getattr(owner, group, None)
+    if settings is None:
+        return None
+    try:
+        return settings.collision_material if settings.is_property_set("collision_material") else None
+    except Exception:
+        return None
+
+
+def check_surfaces(scene):
+    """Solid pieces that will make the wrong sound: no surface chosen, a material that overrides the object's
+    choice, or a name that says wood while the surface says something else."""
+    all_labels = {}
+    group = bpy.types.Object.bl_rna.properties.get("sk8_object")
+    if group is not None and group.fixed_type.properties.get("collision_material") is not None:
+        all_labels = {e.identifier: re.sub(r"^\d+\s*-\s*", "", e.name).strip()
+                      for e in group.fixed_type.properties["collision_material"].enum_items}
+    if not all_labels:
+        return [finding("surfaces", "ok", "ReSkate Studio's add-on is not enabled, so surfaces cannot be read.")]
+    out, unset = [], []
+    for obj in scene.objects:
+        if obj.type != "MESH" or not is_solid(obj) or not obj.data.polygons:
+            continue
+        on_object = _chosen_surface(obj, "sk8_object")
+        mats = [m for m in obj.data.materials if m is not None]
+        on_mats = {m.name: _chosen_surface(m, "sk8_material") for m in mats}
+        if any(getattr(m.sk8_material, "invisible", False) for m in mats if hasattr(m, "sk8_material")) and len(mats) == 1:
+            continue                                        # an invisible collider: its sound is whatever was set
+        effective = [s or on_object for s in on_mats.values()] or [on_object]
+        overriding = [(n, s) for n, s in on_mats.items() if s is not None and on_object is not None and s != on_object]
+        if overriding:
+            n, s = overriding[0]
+            out.append(finding("surfaces", "problem", "%s is set to %s, but its material '%s' is set to %s and the material "
+                                                      "wins. 'Set surface on selected' sets both" % (
+                                                          obj.name, all_labels.get(on_object, on_object), n, all_labels.get(s, s)),
+                               obj.matrix_world.translation))
+            continue
+        if all(s is None for s in effective):
+            unset.append(obj)
+            continue
+        text = " ".join([obj.name, obj.data.name] + [m.name for m in mats])
+        guess = next((label for label, pattern in SURFACE_HINTS if re.search(pattern, text, re.I)), None)
+        have = {all_labels.get(s, "Default") for s in effective if s is not None}
+        if guess and have and not any(guess.lower() in h.lower() for h in have):
+            out.append(finding("surfaces", "look", "%s is named like %s but its surface is %s" % (
+                obj.name, guess.lower(), ", ".join(sorted(have))), obj.matrix_world.translation))
+    if unset:
+        hinted = []
+        for obj in unset:
+            text = " ".join([obj.name, obj.data.name] + [m.name for m in obj.data.materials if m is not None])
+            guess = next((label for label, pattern in SURFACE_HINTS if re.search(pattern, text, re.I)), None)
+            if guess and guess not in ("Concrete",):
+                hinted.append((obj, guess))
+        out.insert(0, finding("surfaces", "look", "%d solid piece(s) have no surface chosen, so they all sound like the "
+                                                  "generic default: %s%s" % (len(unset), ", ".join(o.name for o in unset[:6]),
+                                                                             "..." if len(unset) > 6 else "")))
+        for obj, guess in hinted[:30]:
+            out.append(finding("surfaces", "look", "%s has no surface chosen and is named like %s" % (obj.name, guess.lower()),
+                               obj.matrix_world.translation))
+    return out or [finding("surfaces", "ok", "Every solid piece has a surface chosen and no material overrides its object.")]
+
+
+def set_surface(objects, identifier, also_materials=True):
+    """Chooses one surface for the given objects, and for their materials too so nothing overrides it.
+    Returns (objects set, materials set). A material shared with other pieces changes for them as well."""
+    n_obj, done = 0, set()
+    for obj in objects:
+        settings = getattr(obj, "sk8_object", None)
+        if obj.type != "MESH" or settings is None:
+            continue
+        settings.collision_material = identifier
+        n_obj += 1
+        if also_materials:
+            for mat in obj.data.materials:
+                ms = getattr(mat, "sk8_material", None) if mat is not None else None
+                if ms is not None and mat.name not in done:
+                    ms.collision_material = identifier
+                    done.add(mat.name)
+    return n_obj, len(done)
+
+
+# ---------------------------------------------------------------------------------------------------------------
 TIME_FLAGS ={"morning": 1, "noon": 2, "afternoon": 4, "evening": 8, "night": 16, "weatherday": 32, "weathernight": 64}
 
 

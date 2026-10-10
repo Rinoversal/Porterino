@@ -135,6 +135,59 @@ rails and sleepers with gaps between them, and with road tiles that have a hole 
 In game the strip cannot be seen but is solid, so a skater who reaches an elevated track can stand between the rails.
 If you would rather not have that, delete the strip and lower the route's weight or shorten the route instead.
 
+## Check materials (a piece is untextured in game)
+
+**What it finds:** pieces that look right in Blender and come out as one flat colour in game.
+
+**Why it happens:** the map build reads one thing for a material's picture: the **Base Color** input of its
+**Principled BSDF**. The picture reaches the game when an Image Texture node is wired straight into that input.
+Downloaded models often are not built that way.
+
+| It says | Meaning |
+|---|---|
+| has no Principled BSDF (it uses Diffuse BSDF ...) | an older or imported shader. The build reads only Principled |
+| Base Color goes through a ... node before it reaches the picture | a colour adjustment, mix or node group sits in between. The build tries to bake it and uses a flat colour when it cannot |
+| has a picture that is not connected to Base Color | the Image Texture node is there but not plugged in |
+| has no UV map | nothing tells the game where the picture goes on the mesh |
+| its Image Texture node has no picture chosen | the pink "missing" node |
+| uses a Mapping node / places its picture by ... coordinates | the build uses the plain UV map, so size or position will differ in game |
+| is linked from another .blend | the piece lives in a different file. Make it local |
+
+**How to fix it:** press **Fix materials**. It
+
+- wires the colour picture straight into Base Color (it picks the colour picture, not the normal or roughness map),
+- builds a Principled BSDF for materials that have none and connects it,
+- adds a UV map (Smart UV Project) to textured meshes that have none.
+
+One Undo reverts all of it. A colour adjustment that sat between the picture and Base Color is bypassed, so the piece
+may look a little different from before; if you want that adjustment kept, bake it into the picture file instead.
+Then run **Fix textures** as well (next section), so the pictures themselves are in a format that always builds.
+
+It cannot fix a material that has no picture at all, or a picture file that is missing.
+
+## Check surface sounds (a piece makes the wrong sound)
+
+Needs ReSkate Studio's add-on. In Studio every **object** and every **material** has a setting called
+**Base Surface / Audio Donor**: wood, metal, concrete and so on. It decides the rolling and landing sound.
+
+Two things catch people out:
+
+- **The material's choice beats the object's.** If you set a ramp to wood in the object settings but its material came
+  with concrete chosen (common on downloaded models), the ramp still sounds like concrete.
+- **A piece nobody set uses the generic default**, so everything sounds the same.
+
+**Check surface sounds** lists:
+
+- pieces where a material overrides the object's choice (it names both),
+- pieces with no surface chosen at all,
+- pieces whose name says one thing (wood, metal, plastic ...) while the surface says another.
+
+**How to fix it:** select the pieces, pick the surface in the dropdown, leave **Also set its materials** ticked and
+press **Set surface on selected**. That sets the object and its materials together, so nothing overrides it.
+A material shared with other pieces changes for them too; give a piece its own material first if that matters.
+
+The dropdown shows the plain surfaces. Studio's own panel has more (variants with special behaviour) if you need one.
+
 ## Check textures ("image has no data")
 
 **What it finds:** textures that will reach the build empty. The usual message is `Image '...' does not have any

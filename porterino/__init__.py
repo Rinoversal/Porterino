@@ -4,7 +4,7 @@
 bl_info = {
     "name": "Porterino: ReSkate Map Toolkit",
     "author": "Carterino",
-    "version": (0, 3, 1),
+    "version": (0, 4, 0),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar (N) > Porterino",
     "description": "Check a map against skate. physics and rebuild it into the game with one button",
@@ -38,7 +38,22 @@ def _categories(self, context):
     return _category_items
 
 
+_surface_items = []
+
+
+def _surfaces(self, context):
+    global _surface_items
+    rows = checks.surface_choices("Object") or [("none", "(ReSkate Studio add-on not enabled)")]
+    _surface_items = [(i, label, "") for i, label in rows]
+    return _surface_items
+
+
 class PorterinoSettings(bpy.types.PropertyGroup):
+    surface_choice: EnumProperty(name="Surface", items=_surfaces,
+                                 description="The surface the selected pieces should sound and behave like")
+    surface_materials: BoolProperty(name="Also set its materials", default=True,
+                                    description="A material's own surface beats the object's. Leave this on so nothing overrides "
+                                                "your choice. A material shared with other pieces changes for them too")
     library_folder: StringProperty(name="Parts folder", subtype="DIR_PATH",
                                    description="A folder of pieces (.blend, .fbx, .obj). Sub-folders become categories")
     library_category: EnumProperty(name="Category", items=_categories)
@@ -255,6 +270,68 @@ class PORTERINO_OT_fix_textures(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class PORTERINO_OT_materials(PorterinoCheck, bpy.types.Operator):
+    bl_idname = "porterino.check_materials"
+    bl_label = "Check materials"
+    bl_description = ("Pieces that will build as a flat colour: no UV map, no Principled BSDF, or a picture that is not "
+                      "wired straight into Base Color")
+    check_name = "materials"
+
+    def measure(self, context, depsgraph):
+        return checks.check_materials(context.scene)
+
+
+class PORTERINO_OT_fix_materials(bpy.types.Operator):
+    bl_idname = "porterino.fix_materials"
+    bl_label = "Fix materials"
+    bl_description = ("Wires each colour picture straight into Base Color, gives materials without a Principled BSDF one, "
+                      "and adds a UV map to textured meshes that have none. One Undo reverts it")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        rewired, unwrapped, left = checks.fix_materials(context.scene, context)
+        show(context, checks.check_materials(context.scene), "materials")
+        text = "%d material(s) rewired, %d mesh(es) given a UV map" % (rewired, unwrapped)
+        if left:
+            self.report({"WARNING"}, text + "; %d still need you: %s" % (len(left), "; ".join("%s (%s)" % (n, r[:60]) for n, r in left[:2])))
+        else:
+            self.report({"INFO"}, text)
+        return {"FINISHED"}
+
+
+class PORTERINO_OT_surfaces(PorterinoCheck, bpy.types.Operator):
+    bl_idname = "porterino.check_surfaces"
+    bl_label = "Check surface sounds"
+    bl_description = ("Solid pieces that will make the wrong sound: no surface chosen, or a material whose own surface "
+                      "overrides the one set on the object")
+    check_name = "surfaces"
+
+    def measure(self, context, depsgraph):
+        return checks.check_surfaces(context.scene)
+
+
+class PORTERINO_OT_set_surface(bpy.types.Operator):
+    bl_idname = "porterino.set_surface"
+    bl_label = "Set surface on selected"
+    bl_description = "Chooses this surface for the selected pieces and, if ticked, for their materials so nothing overrides it"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        s = context.scene.porterino
+        if s.surface_choice in ("", "none"):
+            self.report({"ERROR"}, "Enable ReSkate Studio's Blender add-on first: the surfaces come from it")
+            return {"CANCELLED"}
+        picked = [o for o in context.selected_objects if o.type == "MESH"]
+        if not picked:
+            self.report({"ERROR"}, "Select the pieces first")
+            return {"CANCELLED"}
+        n_obj, n_mat = checks.set_surface(picked, s.surface_choice, s.surface_materials)
+        self.report({"INFO"}, "Surface set on %d piece(s) and %d material(s)" % (n_obj, n_mat))
+        return {"FINISHED"}
+
+
 class PORTERINO_OT_all(bpy.types.Operator):
     bl_idname = "porterino.check_all"
     bl_label = "Run all checks"
@@ -263,7 +340,8 @@ class PORTERINO_OT_all(bpy.types.Operator):
     def execute(self, context):
         context.scene.porterino.findings.clear()
         for op in (bpy.ops.porterino.check_floor, bpy.ops.porterino.check_lips, bpy.ops.porterino.check_routes,
-                   bpy.ops.porterino.check_lights, bpy.ops.porterino.check_textures):
+                   bpy.ops.porterino.check_lights, bpy.ops.porterino.check_textures, bpy.ops.porterino.check_materials,
+                   bpy.ops.porterino.check_surfaces):
             op()
         return {"FINISHED"}
 
@@ -502,6 +580,25 @@ class PORTERINO_PT_checks(PorterinoPanel, bpy.types.Panel):
         col.operator("porterino.check_lights", icon="LIGHT")
 
 
+class PORTERINO_PT_materials(PorterinoPanel, bpy.types.Panel):
+    bl_label = "Materials and sounds"
+
+    def draw(self, context):
+        s = context.scene.porterino
+        col = self.layout.column(align=True)
+        col.label(text="Untextured in game?")
+        col.operator("porterino.check_materials", icon="MATERIAL")
+        col.operator("porterino.fix_materials", icon="NODE_MATERIAL")
+        col.operator("porterino.check_textures", icon="TEXTURE")
+        col.operator("porterino.fix_textures", icon="FILE_IMAGE")
+        col.separator()
+        col.label(text="Wrong sound?")
+        col.operator("porterino.check_surfaces", icon="SPEAKER")
+        col.prop(s, "surface_choice", text="")
+        col.prop(s, "surface_materials")
+        col.operator("porterino.set_surface", icon="CHECKMARK")
+
+
 class PORTERINO_PT_library(PorterinoPanel, bpy.types.Panel):
     bl_label = "Parts library"
     bl_options = {"DEFAULT_CLOSED"}
@@ -618,9 +715,10 @@ class PORTERINO_PT_rebuild(PorterinoPanel, bpy.types.Panel):
 CLASSES = (PorterinoFinding, PorterinoSettings, PorterinoPreferences, PORTERINO_OT_floor, PORTERINO_OT_solid,
            PORTERINO_OT_fix_solid, PORTERINO_OT_lips,
            PORTERINO_OT_transition, PORTERINO_OT_rim, PORTERINO_OT_routes, PORTERINO_OT_lights, PORTERINO_OT_all,
-           PORTERINO_OT_textures, PORTERINO_OT_fix_textures, PORTERINO_OT_route_support, PORTERINO_OT_goto, PORTERINO_OT_set_lights, PORTERINO_OT_glow, PORTERINO_OT_scale, PORTERINO_OT_rebuild, PORTERINO_OT_quick_test,
+           PORTERINO_OT_textures, PORTERINO_OT_fix_textures, PORTERINO_OT_materials, PORTERINO_OT_fix_materials,
+           PORTERINO_OT_surfaces, PORTERINO_OT_set_surface, PORTERINO_OT_route_support, PORTERINO_OT_goto, PORTERINO_OT_set_lights, PORTERINO_OT_glow, PORTERINO_OT_scale, PORTERINO_OT_rebuild, PORTERINO_OT_quick_test,
            PORTERINO_OT_library_refresh, PORTERINO_OT_place_piece, PORTERINO_OT_add_start,
-           PORTERINO_PT_checks, PORTERINO_PT_library, PORTERINO_PT_shape, PORTERINO_PT_results, PORTERINO_PT_lights, PORTERINO_PT_scale,
+           PORTERINO_PT_checks, PORTERINO_PT_materials, PORTERINO_PT_library, PORTERINO_PT_shape, PORTERINO_PT_results, PORTERINO_PT_lights, PORTERINO_PT_scale,
            PORTERINO_PT_rebuild)
 
 
