@@ -4,7 +4,7 @@
 bl_info = {
     "name": "Porterino: ReSkate Map Toolkit",
     "author": "Carterino",
-    "version": (0, 3, 0),
+    "version": (0, 3, 1),
     "blender": (4, 2, 0),
     "location": "3D View > Sidebar (N) > Porterino",
     "description": "Check a map against skate. physics and rebuild it into the game with one button",

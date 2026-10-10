@@ -230,21 +230,88 @@ def check_seen_vs_solid(scene, depsgraph, radius=150.0, step=0.5, minimum_m2=1.5
     return out
 
 
-def fix_seen_vs_solid(scene, depsgraph, radius=150.0, step=0.5, minimum_m2=1.5, minimum_share=0.25):
-    """Gives collision to the drawn pieces check_seen_vs_solid reports, using the drawn mesh itself.
-    Scenery (backdrops, water, sky) is left alone. Returns the objects changed."""
-    table = seen_vs_solid(scene, depsgraph, radius, step)
-    changed = []
+def fix_seen_vs_solid(scene, depsgraph, radius=150.0, step=0.5, minimum_m2=1.5, minimum_share=0.25, tolerance=0.15):
+    """Gives collision to the drawn pieces check_seen_vs_solid reports. Scenery (backdrops, water, sky) is left alone.
+    A piece that is mostly unsupported becomes solid as a whole, from its own drawn mesh. A piece that is only
+    partly unsupported (an edge that hangs past its collision) keeps its collision as it is, and just its
+    unsupported faces are copied into one invisible solid patch. Returns the objects changed or made."""
+    table = seen_vs_solid(scene, depsgraph, radius, step, tolerance=tolerance)
+    changed, partial = [], []
     for name, rec in table.items():
         obj = scene.objects.get(name)
-        if obj is None or SCENERY.search(name) or is_solid(obj):
+        if obj is None or SCENERY.search(name) or is_solid(obj) or rec[1] < minimum_m2:
             continue
-        if rec[1] >= minimum_m2 and rec[1] >= minimum_share * rec[0]:
+        if rec[1] >= minimum_share * rec[0]:
             settings = getattr(obj, "sk8_object", None)
             if settings is not None:
                 settings.collision_mode = "triangle_mesh"
                 changed.append(obj)
+        else:
+            partial.append(obj)
+    if partial:
+        patch = _patch_unsupported_faces(scene, depsgraph, partial, tolerance)
+        if patch is not None:
+            changed.append(patch)
     return changed
+
+
+def _patch_unsupported_faces(scene, depsgraph, objects, tolerance):
+    """One invisible solid mesh made of the up-facing faces of `objects` that have a spot with nothing solid within
+    `tolerance` metres above or below it. Each face is sampled about every half metre, the same test the check uses."""
+    solid_tree, _ = _world_tree(scene, depsgraph, lambda o, m: is_solid(o))
+    lift = Vector((0.0, 0.0, tolerance))
+
+    def supported(p):
+        return solid_tree is not None and solid_tree.ray_cast(p + lift, DOWN, 2.0 * tolerance)[0] is not None
+
+    def samples_of(corners):
+        centre = sum(corners, Vector()) / len(corners)
+        yield centre
+        for a, b in zip(corners, corners[1:] + corners[:1]):          # a fan of triangles around the centre
+            n = max(1, min(12, int(math.ceil(math.sqrt(((a - centre).cross(b - centre)).length * 0.5 / 0.25)))))
+            for i in range(n + 1):
+                for j in range(n + 1 - i):
+                    u, v = i / n, j / n
+                    p = centre + (a - centre) * u + (b - centre) * v
+                    yield centre + (p - centre) * 0.97                  # just inside the edge, not on it
+
+    verts, faces = [], []
+    for obj in objects:
+        me, mw = obj.data, obj.matrix_world
+        rot = mw.to_3x3()
+        world = None
+        for poly in me.polygons:
+            mat = me.materials[poly.material_index] if poly.material_index < len(me.materials) else None
+            if not _material_drawn(mat) or abs((rot @ poly.normal).normalized().z) <= 0.35:
+                continue
+            if world is None:
+                world = [mw @ v.co for v in me.vertices]
+            corners = [world[i] for i in poly.vertices]
+            if all(supported(p) for p in samples_of(corners)):
+                continue                                   # something solid already sits under all of this face
+            base = len(verts)
+            verts += [tuple(c) for c in corners]
+            faces.append(tuple(range(base, base + len(corners))))
+    if not faces:
+        return None
+    me = bpy.data.meshes.new("Seen-not-solid patch")
+    me.from_pydata(verts, [], faces)
+    me.update()
+    mat = bpy.data.materials.new("Invisible seen-not-solid patch")
+    ms = getattr(mat, "sk8_material", None)
+    if ms is not None:                                      # ReSkate Studio: invisible in game, still solid
+        for name, value in (("invisible", True), ("cast_shadows", False), ("exclude_from_edge_generation", True),
+                            ("exclude_from_grinding", True)):
+            if hasattr(ms, name):
+                setattr(ms, name, value)
+    me.materials.append(mat)
+    patch = bpy.data.objects.new("col_seen_patch", me)
+    scene.collection.objects.link(patch)
+    patch.display_type = "WIRE"                             # an outline in Blender, so it is clearly a helper
+    so = getattr(patch, "sk8_object", None)
+    if so is not None:
+        so.collision_mode = "triangle_mesh"
+    return patch
 
 
 # ---------------------------------------------------------------------------------------------------------------

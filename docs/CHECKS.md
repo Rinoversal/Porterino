@@ -36,8 +36,15 @@ the collision for some pieces did not come across.
 **Reading the result:** `ramp_12: 14 of 14 m2 not solid (solid is 1.50 m away)` means the whole piece is drawn 1.5 m
 away from the nearest collision. `nothing solid under it at all` means there is no collision below it anywhere.
 
-**How to fix it:** press **Make drawn pieces solid**. Each reported piece gets collision from its own drawn mesh.
-Backdrops, water and sky are left alone, and a piece is only changed when at least a quarter of it is unsupported.
+**How to fix it:** press **Make drawn pieces solid**.
+
+- A piece that is mostly unsupported (a quarter of it or more) becomes solid as a whole, from its own drawn mesh.
+- A piece that is only partly unsupported, such as a deck whose edge hangs past its collision, keeps its collision
+  as it is. Just its unsupported faces are copied into one invisible solid object called `col_seen_patch`, which
+  shows as a wire outline in Blender.
+- Backdrops, water and sky are left alone.
+
+A few square metres can remain on very large faces where only a thin strip at the edge is unsupported.
 Run the check again afterwards. Roofs and other high pieces become solid too, which is normally what you want.
 
 **What it does not cover:** walls and fences. It only looks at surfaces you could stand on.
